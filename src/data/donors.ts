@@ -1,0 +1,60 @@
+import { DonorProfile } from '../types';
+
+export const DONOR_PROFILES: DonorProfile[] = [
+  {
+    id: 'subject_standard',
+    name: 'Volunteer #104',
+    codename: 'Clinical Baseline',
+    avatarColor: '#38bdf8',
+    description: 'Healthy adult clinical volunteer. Standard viscosity and baseline response to rhythmic pneumatic stimulation.',
+    baseVolume: 3.8,
+    optimalFrequency: 2.2, // ~130 strokes/min
+    optimalVacuum: 38, // 38 kPa
+    temperatureTolerance: [35.5, 38.0],
+    viscosityRating: 0.65,
+    motilityBaseline: 78,
+    unlockedAtCredits: 0,
+  },
+  {
+    id: 'subject_athlete',
+    name: 'Volunteer #209',
+    codename: 'High-Endurance Athlete',
+    avatarColor: '#4ade80',
+    description: 'Elite physical condition with elevated cardiovascular capacity. Responds best to brisk, high-frequency piston stroking.',
+    baseVolume: 6.2,
+    optimalFrequency: 3.1, // ~186 strokes/min
+    optimalVacuum: 48,
+    temperatureTolerance: [36.0, 37.8],
+    viscosityRating: 0.55,
+    motilityBaseline: 89,
+    unlockedAtCredits: 350,
+  },
+  {
+    id: 'subject_hyper',
+    name: 'Subject Delta-7',
+    codename: 'Hyper-Yield Specimen',
+    avatarColor: '#a855f7',
+    description: 'Rare biological phenotype with extraordinary reservoir volume and high cell motility. Requires high vacuum seal and careful thermal regulation.',
+    baseVolume: 12.5,
+    optimalFrequency: 2.5,
+    optimalVacuum: 62,
+    temperatureTolerance: [36.6, 37.4],
+    viscosityRating: 0.85,
+    motilityBaseline: 94,
+    unlockedAtCredits: 1800,
+  },
+  {
+    id: 'subject_cyber',
+    name: 'Titan Bio-01',
+    codename: 'Synthetic Enhanced',
+    avatarColor: '#f59e0b',
+    description: 'Experimental donor participating in genetic optimization trials. Massive surge volume yields S-Tier cryogenic grade samples.',
+    baseVolume: 22.0,
+    optimalFrequency: 2.8,
+    optimalVacuum: 75,
+    temperatureTolerance: [36.2, 37.5],
+    viscosityRating: 0.72,
+    motilityBaseline: 98,
+    unlockedAtCredits: 6000,
+  },
+];
