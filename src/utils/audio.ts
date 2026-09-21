@@ -1,10 +1,10 @@
-// Web Audio API procedural sound synthesizer for realistic laboratory & mechanical extraction audio
-
+// Web Audio API procedural sound synthesizer with wet squishy gooey audio dynamics
 class AudioManager {
   private ctx: AudioContext | null = null;
   public enabled: boolean = true;
   private vacuumNode: { osc: OscillatorNode; noise: AudioBufferSourceNode; gain: GainNode } | null = null;
   private userHasInteracted: boolean = false;
+  private distortionCurve: Float32Array | null = null;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -44,105 +44,170 @@ class AudioManager {
     }
   }
 
-  // Tactile stroke sound with authentic wet skin rubbing and viscous lubricant squelch
+  private getSoftDistortionCurve(): Float32Array {
+    if (this.distortionCurve) return this.distortionCurve;
+    const n_samples = 44100;
+    const curve = new Float32Array(n_samples);
+    const deg = Math.PI / 180;
+    const k = 2.5;
+    for (let i = 0; i < n_samples; ++i) {
+      const x = (i * 2) / n_samples - 1;
+      curve[i] = ((3 + k) * x * 20 * deg) / (Math.PI + k * Math.abs(x));
+    }
+    this.distortionCurve = curve;
+    return curve;
+  }
+
+  // Pure wet, squishy, gooey sound triggered on every stroke
   playStroke(velocity: number = 1.0, lubeLevel: number = 75) {
     if (!this.enabled) return;
     this.initContext();
     if (!this.ctx || this.ctx.state !== 'running') return;
 
     try {
-      const safeVelocity = Math.max(0.2, Math.min(velocity, 2.5));
-      const lubeFactor = Math.max(0.15, Math.min(1.4, lubeLevel / 60));
+      const safeVel = Math.max(0.3, Math.min(velocity, 2.8));
+      const lubeEffect = Math.max(0.4, Math.min(1.5, lubeLevel / 60));
       const t = this.ctx.currentTime;
       const sampleRate = this.ctx.sampleRate;
+      const strokeDuration = Math.max(0.18, 0.28 / Math.pow(safeVel, 0.3));
 
-      // 1. Deep fleshy impact / body resonance
-      const bodyOsc = this.ctx.createOscillator();
-      const bodyGain = this.ctx.createGain();
-      bodyOsc.type = 'sine';
-      const startFreq = 68 + safeVelocity * 28 + (Math.random() * 8 - 4);
-      bodyOsc.frequency.setValueAtTime(startFreq, t);
-      bodyOsc.frequency.exponentialRampToValueAtTime(32, t + 0.16);
+      // Master wet stroke bus with soft saturation for juicy gooey fullness
+      const strokeMaster = this.ctx.createGain();
+      strokeMaster.gain.setValueAtTime(Math.min(1.0, 0.85 + safeVel * 0.15), t);
 
-      const bodyPeakGain = Math.max(0.01, 0.24 * Math.min(safeVelocity, 1.4));
-      bodyGain.gain.setValueAtTime(bodyPeakGain, t);
-      bodyGain.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+      const shaper = this.ctx.createWaveShaper();
+      shaper.curve = this.getSoftDistortionCurve() as any;
+      shaper.oversample = '2x';
+      strokeMaster.connect(shaper);
+      shaper.connect(this.ctx.destination);
 
-      bodyOsc.connect(bodyGain);
-      bodyGain.connect(this.ctx.destination);
-      bodyOsc.start(t);
-      bodyOsc.stop(t + 0.18);
-
-      // 2. Viscous lubricant wet squelch & skin shear noise
-      const bufferLen = Math.max(1, Math.floor(sampleRate * 0.15));
-      const noiseBuffer = this.ctx.createBuffer(1, bufferLen, sampleRate);
-      const data = noiseBuffer.getChannelData(0);
-      let lastVal = 0;
-      for (let i = 0; i < bufferLen; i++) {
+      // --- 1. Gooey Fluid Squelch (Viscous fluid turbulence & squishing gel) ---
+      const noiseLen = Math.max(1, Math.floor(sampleRate * strokeDuration));
+      const noiseBuffer = this.ctx.createBuffer(1, noiseLen, sampleRate);
+      const noiseData = noiseBuffer.getChannelData(0);
+      let smooth = 0;
+      for (let i = 0; i < noiseLen; i++) {
         const white = Math.random() * 2 - 1;
-        // Pink-tinted smoothed noise for rich viscous fluid texture
-        lastVal = (lastVal * 0.45) + (white * 0.55);
-        // Windowed envelope with gentle initial squish and wet drag
-        const progress = i / bufferLen;
-        const env = Math.sin(progress * Math.PI) * (1 + 0.4 * Math.sin(progress * Math.PI * 3));
-        data[i] = lastVal * env;
+        // Warm brown-pink noise filtering for dense gooey consistency
+        smooth = smooth * 0.52 + white * 0.48;
+        const progress = i / noiseLen;
+        // Wet squelch envelope: rapid rise, squishy middle ripples, gentle squelch tail
+        const ripple = 1.0 + 0.35 * Math.sin(progress * Math.PI * 5);
+        const env = Math.sin(progress * Math.PI) * ripple;
+        noiseData[i] = smooth * env;
       }
 
       const noiseSource = this.ctx.createBufferSource();
       noiseSource.buffer = noiseBuffer;
 
-      // Primary juicy squelch formant (380 - 750 Hz)
-      const formantFilter = this.ctx.createBiquadFilter();
-      formantFilter.type = 'bandpass';
-      const formantFreq = 420 + safeVelocity * 180 + (Math.random() * 60 - 30);
-      formantFilter.frequency.setValueAtTime(formantFreq, t);
-      formantFilter.frequency.exponentialRampToValueAtTime(formantFreq * 1.35, t + 0.08);
-      formantFilter.frequency.exponentialRampToValueAtTime(formantFreq * 0.85, t + 0.14);
-      formantFilter.Q.setValueAtTime(3.8 + lubeFactor * 1.8, t);
+      // Resonant Goo Formant 1: Deep viscous body sweep (300Hz - 680Hz)
+      const gooFilter1 = this.ctx.createBiquadFilter();
+      gooFilter1.type = 'bandpass';
+      const f1Base = 320 + safeVel * 120 + (Math.random() * 50 - 25);
+      gooFilter1.frequency.setValueAtTime(f1Base, t);
+      gooFilter1.frequency.exponentialRampToValueAtTime(f1Base * 1.85, t + strokeDuration * 0.45);
+      gooFilter1.frequency.exponentialRampToValueAtTime(f1Base * 0.9, t + strokeDuration);
+      gooFilter1.Q.setValueAtTime(5.5 + lubeEffect * 1.8, t);
 
-      // Secondary wet slippery friction sheen (1200 - 2400 Hz)
-      const sheenFilter = this.ctx.createBiquadFilter();
-      sheenFilter.type = 'bandpass';
-      const sheenFreq = 1400 + safeVelocity * 400 + (Math.random() * 120 - 60);
-      sheenFilter.frequency.setValueAtTime(sheenFreq, t);
-      sheenFilter.frequency.exponentialRampToValueAtTime(sheenFreq * 0.7, t + 0.12);
-      sheenFilter.Q.setValueAtTime(2.6, t);
+      // Resonant Goo Formant 2: Moist squish & liquid churn (750Hz - 1450Hz)
+      const gooFilter2 = this.ctx.createBiquadFilter();
+      gooFilter2.type = 'bandpass';
+      const f2Base = 780 + safeVel * 220 + (Math.random() * 80 - 40);
+      gooFilter2.frequency.setValueAtTime(f2Base, t);
+      gooFilter2.frequency.exponentialRampToValueAtTime(f2Base * 1.45, t + strokeDuration * 0.35);
+      gooFilter2.frequency.exponentialRampToValueAtTime(f2Base * 0.75, t + strokeDuration);
+      gooFilter2.Q.setValueAtTime(4.2 + lubeEffect * 1.5, t);
 
-      const noiseGain = this.ctx.createGain();
-      const peakNoise = Math.max(0.01, 0.18 * Math.min(safeVelocity, 1.5) * lubeFactor);
-      noiseGain.gain.setValueAtTime(0.005, t);
-      noiseGain.gain.linearRampToValueAtTime(peakNoise, t + 0.035);
-      noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+      const squelchGain = this.ctx.createGain();
+      squelchGain.gain.setValueAtTime(0.01, t);
+      squelchGain.gain.linearRampToValueAtTime(0.35 * lubeEffect, t + 0.03);
+      squelchGain.gain.exponentialRampToValueAtTime(0.001, t + strokeDuration);
 
-      noiseSource.connect(formantFilter);
-      noiseSource.connect(sheenFilter);
-      formantFilter.connect(noiseGain);
-      sheenFilter.connect(noiseGain);
-      noiseGain.connect(this.ctx.destination);
+      noiseSource.connect(gooFilter1);
+      noiseSource.connect(gooFilter2);
+      gooFilter1.connect(squelchGain);
+      gooFilter2.connect(squelchGain);
+      squelchGain.connect(strokeMaster);
 
       noiseSource.start(t);
-      noiseSource.stop(t + 0.16);
+      noiseSource.stop(t + strokeDuration);
 
-      // 3. Wet suction micro-pop / lube slip snap (if sufficiently lubricated)
-      if (lubeLevel > 25) {
+      // --- 2. Wet Gooey Micro-Bubble Pops & Cavitation Squishes (2-3 staggered bubbles) ---
+      const numPops = 3;
+      for (let p = 0; p < numPops; p++) {
+        const popDelay = 0.02 + p * (0.05 + Math.random() * 0.035);
+        if (popDelay >= strokeDuration - 0.02) continue;
+
+        const popTime = t + popDelay;
         const popOsc = this.ctx.createOscillator();
         const popGain = this.ctx.createGain();
         popOsc.type = 'sine';
-        const popStart = 380 + Math.random() * 220;
-        popOsc.frequency.setValueAtTime(popStart, t + 0.025);
-        popOsc.frequency.exponentialRampToValueAtTime(popStart * 1.9, t + 0.065);
 
-        popGain.gain.setValueAtTime(0.001, t);
-        popGain.gain.setValueAtTime(0.09 * lubeFactor, t + 0.025);
-        popGain.gain.exponentialRampToValueAtTime(0.001, t + 0.075);
+        // Downward gooey suction drop
+        const startPopF = (360 + p * 160 + (Math.random() * 80 - 40)) * (0.9 + safeVel * 0.15);
+        const endPopF = Math.max(90, startPopF * 0.32);
+        const popDur = 0.028 + Math.random() * 0.015;
+
+        popOsc.frequency.setValueAtTime(startPopF, popTime);
+        popOsc.frequency.exponentialRampToValueAtTime(endPopF, popTime + popDur);
+
+        popGain.gain.setValueAtTime(0.001, popTime);
+        popGain.gain.linearRampToValueAtTime(0.18 * lubeEffect, popTime + 0.005);
+        popGain.gain.exponentialRampToValueAtTime(0.001, popTime + popDur);
 
         popOsc.connect(popGain);
-        popGain.connect(this.ctx.destination);
-        popOsc.start(t + 0.025);
-        popOsc.stop(t + 0.08);
+        popGain.connect(strokeMaster);
+
+        popOsc.start(popTime);
+        popOsc.stop(popTime + popDur + 0.005);
       }
+
+      // --- 3. Deep Suction Body Churn (Subtle sub-harmonic goo displace) ---
+      const bodyOsc = this.ctx.createOscillator();
+      const bodyGain = this.ctx.createGain();
+      bodyOsc.type = 'sine';
+      const bodyF = 65 + safeVel * 20 + (Math.random() * 8 - 4);
+      bodyOsc.frequency.setValueAtTime(bodyF, t);
+      bodyOsc.frequency.exponentialRampToValueAtTime(38, t + strokeDuration * 0.8);
+
+      bodyGain.gain.setValueAtTime(0.001, t);
+      bodyGain.gain.linearRampToValueAtTime(0.24 * lubeEffect, t + 0.025);
+      bodyGain.gain.exponentialRampToValueAtTime(0.001, t + strokeDuration * 0.85);
+
+      bodyOsc.connect(bodyGain);
+      bodyGain.connect(strokeMaster);
+
+      bodyOsc.start(t);
+      bodyOsc.stop(t + strokeDuration);
+
+      // --- 4. Wet Fluid Lubricant Sheen (Slippery liquid friction) ---
+      const sheenLen = Math.max(1, Math.floor(sampleRate * (strokeDuration * 0.6)));
+      const sheenBuffer = this.ctx.createBuffer(1, sheenLen, sampleRate);
+      const sheenData = sheenBuffer.getChannelData(0);
+      for (let i = 0; i < sheenLen; i++) {
+        sheenData[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / sheenLen, 2.2);
+      }
+      const sheenSource = this.ctx.createBufferSource();
+      sheenSource.buffer = sheenBuffer;
+
+      const sheenFilter = this.ctx.createBiquadFilter();
+      sheenFilter.type = 'bandpass';
+      sheenFilter.frequency.setValueAtTime(2200 + (Math.random() * 400 - 200), t);
+      sheenFilter.Q.setValueAtTime(2.2, t);
+
+      const sheenGain = this.ctx.createGain();
+      sheenGain.gain.setValueAtTime(0.001, t);
+      sheenGain.gain.linearRampToValueAtTime(0.08 * lubeEffect, t + 0.015);
+      sheenGain.gain.exponentialRampToValueAtTime(0.001, t + strokeDuration * 0.6);
+
+      sheenSource.connect(sheenFilter);
+      sheenFilter.connect(sheenGain);
+      sheenGain.connect(strokeMaster);
+
+      sheenSource.start(t);
+      sheenSource.stop(t + strokeDuration * 0.6);
     } catch {
-      // Ignore audio failure
+      // Audio execution safe fail
     }
   }
 

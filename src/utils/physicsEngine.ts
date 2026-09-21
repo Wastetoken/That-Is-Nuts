@@ -25,6 +25,10 @@ export interface MachineState {
   sloshAngle: number;
   sloshVelocity: number;
   isManualDragging?: boolean;
+  isClickStroking?: boolean;
+  clickStrokeTime?: number;
+  tubeFluidFlowSpeed?: number;
+  manualStrokes?: number;
 }
 
 export class ExtractionPhysicsEngine {

@@ -160,7 +160,7 @@ export default function App() {
     isSurging: false,
     surgeProgress: 0,
     heartRate: 75,
-    liquidLevelMl: 0,
+    liquidLevelMl: 4.2,
     maxBeakerCapacity: 50,
     sloshAngle: 0,
     sloshVelocity: 0,
@@ -259,12 +259,27 @@ export default function App() {
       const state = machineStateRef.current;
       const engine = engineRef.current;
 
-      // 1. Passive Auto-Piston Stroking
+      // 1. Passive Auto-Piston Stroking or Active Click-Stroke Cycle
       if (upgradeStats.autoStrokesPerSec > 0 && !state.isSurging) {
         const autoPhase = (now * 0.001 * upgradeStats.autoStrokesPerSec) % 1;
         state.strokePosition = 0.5 + Math.sin(autoPhase * Math.PI * 2) * 0.35;
         state.strokeVelocity = Math.cos(autoPhase * Math.PI * 2) * upgradeStats.autoStrokesPerSec * 2;
         engine.recordStroke(0.8);
+      } else if (state.isClickStroking && state.clickStrokeTime && !state.isManualDragging) {
+        // Fast, tactile manual click stroke cycle (plunges down to base and returns smoothly)
+        const elapsed = (now - state.clickStrokeTime) / 1000;
+        const strokeDuration = 0.36; // 360ms per stroke
+        if (elapsed >= strokeDuration) {
+          state.isClickStroking = false;
+          state.clickStrokeTime = undefined;
+          state.strokePosition = 0.12;
+          state.strokeVelocity = 0;
+        } else {
+          const t = elapsed / strokeDuration;
+          // Smooth sine plunge: starts at 0.12, reaches 0.94 at mid-stroke (t=0.5), returns to 0.12
+          state.strokePosition = 0.12 + Math.sin(t * Math.PI) * 0.82;
+          state.strokeVelocity = Math.cos(t * Math.PI) * 6.5;
+        }
       }
 
       // 2. Auto-Vacuum Governor
@@ -378,7 +393,8 @@ export default function App() {
   // Handle Manual Stroke Action
   const handleManualStroke = useCallback((velocity: number) => {
     const state = machineStateRef.current;
-    state.strokeVelocity += (velocity > 0 ? 3.8 : -3.8);
+    state.strokeVelocity = velocity > 0 ? 5.2 : -5.2;
+    state.manualStrokes = (state.manualStrokes || 0) + 1;
     engineRef.current.recordStroke(velocity);
 
     soundManager.playStroke(velocity, state.lubeLevel);
@@ -388,8 +404,21 @@ export default function App() {
       manualStrokes: prev.manualStrokes + 1,
     }));
 
-    // Spawn tiny fluid lubrication droplets if lubed
-    if (state.lubeLevel > 20 && Math.random() < 0.2) {
+    // Trigger immediate mechanical stroke movement along shaft
+    state.isClickStroking = true;
+    state.clickStrokeTime = performance.now();
+
+    // Pull vacuum pressure up on downward stroke
+    state.vacuumPressure = Math.min(100, state.vacuumPressure + 2.5);
+
+    // Suction pull extracts semen directly through the tube into the cup
+    state.liquidLevelMl = Math.min(state.maxBeakerCapacity, state.liquidLevelMl + 0.22);
+
+    // Agitate fluid slosh in beaker
+    state.sloshVelocity += (Math.random() - 0.5) * 0.25;
+
+    // Spawn fluid lubrication droplets if lubed
+    if (state.lubeLevel > 20 && Math.random() < 0.3) {
       engineRef.current.spawnFluidBurst(120, 130, 2, 0.6, 0.4);
     }
   }, []);

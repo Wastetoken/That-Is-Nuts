@@ -61,13 +61,41 @@ export const PhysicsViewport: React.FC<PhysicsViewportProps> = ({
   const glansGroupRef = useRef<THREE.Group | null>(null);
   const scrotumGroupRef = useRef<THREE.Group | null>(null);
   const strokerGroupRef = useRef<THREE.Group | null>(null);
-  const fingersGroupRef = useRef<THREE.Group | null>(null);
   const beakerGroupRef = useRef<THREE.Group | null>(null);
   const beakerFluidMeshRef = useRef<THREE.Mesh | null>(null);
+  const meniscusMeshRef = useRef<THREE.Mesh | null>(null);
+  const frothMeshRef = useRef<THREE.Mesh | null>(null);
+  const meatusPearlMeshRef = useRef<THREE.Mesh | null>(null);
   const skinMaterialRef = useRef<THREE.MeshPhysicalMaterial | null>(null);
   const glansMaterialRef = useRef<THREE.MeshPhysicalMaterial | null>(null);
 
-  // Semen particle system refs
+  // 3D Physical Viscous Semen Globs Engine (Organic projectiles flying in parabolic arcs from meatus to cup)
+  const globPoolRef = useRef<{
+    mesh: THREE.Mesh;
+    active: boolean;
+    x: number;
+    y: number;
+    z: number;
+    vx: number;
+    vy: number;
+    vz: number;
+    scale: number;
+    life: number;
+  }[]>([]);
+
+  // Expanding Surface Splash Rings on Beaker Liquid
+  const splashPoolRef = useRef<{
+    mesh: THREE.Mesh;
+    active: boolean;
+    scale: number;
+    opacity: number;
+    y: number;
+  }[]>([]);
+
+  const dripCadenceTimerRef = useRef<number>(0);
+  const lastStrokeCountRef = useRef<number>(state.manualStrokes || 0);
+
+  // Semen gooey spray particle system refs
   const particleSystemRef = useRef<THREE.Points | null>(null);
   const particleDataRef = useRef<{
     positions: Float32Array;
@@ -77,38 +105,79 @@ export const PhysicsViewport: React.FC<PhysicsViewportProps> = ({
     count: number;
   } | null>(null);
 
-  // Launch parabolic semen particles from meatus / suction nozzle into collection beaker
+  // Eject thick, pearlescent viscous 3D globs directly from cock glans meatus into collection cup
+  const launchViscousGlobs = useCallback((count: number = 2, velocityScale: number = 1.0) => {
+    const pool = globPoolRef.current;
+    if (!pool || pool.length === 0) return;
+    let spawned = 0;
+    for (let i = 0; i < pool.length && spawned < count; i++) {
+      if (!pool[i].active) {
+        pool[i].active = true;
+        // Start directly at the exposed urethral meatus opening of the glans
+        pool[i].x = -1.45 + (Math.random() - 0.5) * 0.06;
+        pool[i].y = 2.45 + (Math.random() - 0.5) * 0.06;
+        pool[i].z = 0.05 + (Math.random() - 0.5) * 0.06;
+
+        // Graceful projectile arc forward-right directly toward the beaker cup mouth
+        const fwd = (3.5 + Math.random() * 2.2) * velocityScale;
+        const up = (1.4 + Math.random() * 2.0) * velocityScale;
+        const depth = ((Math.random() - 0.5) * 0.35 + 0.35) * velocityScale;
+
+        pool[i].vx = fwd;
+        pool[i].vy = up;
+        pool[i].vz = depth;
+        pool[i].scale = (0.13 + Math.random() * 0.08) * (0.9 + Math.min(0.6, velocityScale * 0.2));
+        pool[i].life = 1.8;
+        pool[i].mesh.visible = true;
+        pool[i].mesh.position.set(pool[i].x, pool[i].y, pool[i].z);
+        pool[i].mesh.scale.set(pool[i].scale, pool[i].scale, pool[i].scale);
+
+        spawned++;
+      }
+    }
+
+    // Dynamic expansion & eruption reflex on the glistening urethral meatus pearl
+    if (meatusPearlMeshRef.current) {
+      meatusPearlMeshRef.current.scale.set(0.38, 0.85, 0.38);
+    }
+  }, []);
+
+  // Launch explosive gooey spray clouds & projectile globs directly from urethral meatus into collection beaker
   const launchSpecimenBurst = useCallback((count: number, velocityScale: number = 1.0) => {
+    // 1. Concurrently launch thick 3D gelatinous globs
+    const globsToLaunch = Math.max(1, Math.min(6, Math.floor(count * 0.35)));
+    launchViscousGlobs(globsToLaunch, velocityScale);
+
+    // 2. Launch high-speed gooey spray mist and droplet cone
     const pData = particleDataRef.current;
     if (!pData) return;
 
     const { positions, velocities, lifetimes, active, count: maxParticles } = pData;
     let launched = 0;
 
-    // Origin starts along the medical tube nozzle over the beaker
     for (let i = 0; i < maxParticles && launched < count; i++) {
       if (!active[i]) {
         active[i] = true;
-        lifetimes[i] = 1.2;
+        lifetimes[i] = 1.3 + Math.random() * 0.5;
 
-        // Origin at nozzle above the collection beaker (x ~ 1.8, y ~ 1.3, z ~ 0.5)
-        positions[i * 3] = 1.8 + (Math.random() - 0.5) * 0.2;
-        positions[i * 3 + 1] = 1.3 + (Math.random() - 0.5) * 0.15;
-        positions[i * 3 + 2] = 0.5 + (Math.random() - 0.5) * 0.2;
+        // Direct urethral ejection from glans tip meatus
+        positions[i * 3] = -1.45 + (Math.random() - 0.5) * 0.08;
+        positions[i * 3 + 1] = 2.45 + (Math.random() - 0.5) * 0.08;
+        positions[i * 3 + 2] = 0.05 + (Math.random() - 0.5) * 0.08;
 
-        // Downward trajectory splashing directly into the beaker
-        const spreadAngle = (Math.random() - 0.5) * 0.3;
-        const downwardSpeed = -(3.2 + Math.random() * 2.0) * velocityScale;
-        const sideSpeed = Math.sin(spreadAngle) * 0.4;
+        // Arcing high-velocity forward-upward gooey spray cone aimed directly toward the beaker rim
+        const forwardSpeed = (3.6 + Math.random() * 2.4) * velocityScale;
+        const upwardSpeed = (1.5 + Math.random() * 2.4) * velocityScale;
+        const depthDrift = ((Math.random() - 0.5) * 0.45 + 0.35) * velocityScale;
 
-        velocities[i * 3] = sideSpeed;
-        velocities[i * 3 + 1] = downwardSpeed;
-        velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.2;
+        velocities[i * 3] = forwardSpeed;
+        velocities[i * 3 + 1] = upwardSpeed;
+        velocities[i * 3 + 2] = depthDrift;
 
         launched++;
       }
     }
-  }, []);
+  }, [launchViscousGlobs]);
 
   // Initialize Three.js Scene, Camera, Lighting & Anatomical Models
   useEffect(() => {
@@ -235,6 +304,38 @@ export const PhysicsViewport: React.FC<PhysicsViewportProps> = ({
     meatusMesh.position.set(0, 0.58, 0.02);
     glansGroup.add(meatusMesh);
 
+    // 3D Viscous Semen Droplet / Pearl at Meatus Tip (Glistens and swells with arousal)
+    const meatusPearlGeo = new THREE.SphereGeometry(0.14, 20, 20);
+    const meatusPearlMat = new THREE.MeshPhysicalMaterial({
+      color: 0xffffff,
+      roughness: 0.04,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.02,
+      sheen: 1.0,
+      sheenColor: new THREE.Color(0xffffff),
+      metalness: 0.0,
+    });
+    const meatusPearlMesh = new THREE.Mesh(meatusPearlGeo, meatusPearlMat);
+    meatusPearlMesh.position.set(0, 0.62, 0.04);
+    meatusPearlMesh.scale.set(0.15, 0.15, 0.15);
+    glansGroup.add(meatusPearlMesh);
+    meatusPearlMeshRef.current = meatusPearlMesh;
+
+    // Glistening Coronal Secretion Ring
+    const coronaDewGeo = new THREE.TorusGeometry(shaftRadius * 1.06, 0.035, 12, 32);
+    const coronaDewMat = new THREE.MeshPhysicalMaterial({
+      color: 0xffffff,
+      roughness: 0.06,
+      clearcoat: 1.0,
+      transmission: 0.15,
+      opacity: 0.95,
+      transparent: true,
+    });
+    const coronaDewMesh = new THREE.Mesh(coronaDewGeo, coronaDewMat);
+    coronaDewMesh.rotation.x = Math.PI / 2;
+    coronaDewMesh.position.y = 0.02;
+    glansGroup.add(coronaDewMesh);
+
     // ANCHORED SCROTUM / TESTICLES (Anchored at base Y = -2.85, completely stationary)
     const scrotumGroup = new THREE.Group();
     scrotumGroup.position.set(0, -shaftHeight / 2 - 0.45, -0.15);
@@ -254,88 +355,222 @@ export const PhysicsViewport: React.FC<PhysicsViewportProps> = ({
     rightTestis.castShadow = true;
     scrotumGroup.add(rightTestis);
 
-    // 6. THE STROKER SLEEVE (Directly follows finger up and down along shaft)
+    // 6. THE MECHANICAL VACUUM STROKER SLEEVE (Moves directly with strokes and clicks)
     const strokerGroup = new THREE.Group();
-    // Initial position matching state.strokePosition
     const initialStrokerY = 1.95 - state.strokePosition * 3.9;
     strokerGroup.position.set(0, initialStrokerY, 0);
     strokerGroupRef.current = strokerGroup;
     penisGroup.add(strokerGroup);
 
-    // Transparent Medical Silicone Sleeve Cylinder
-    const sleeveLength = 1.9;
-    const sleeveGeo = new THREE.CylinderGeometry(shaftRadius * 1.28, shaftRadius * 1.25, sleeveLength, 32, 8, true);
+    // Transparent Contoured Medical Silicone Sleeve Cylinder
+    const sleeveLength = 1.95;
+    const sleeveGeo = new THREE.CylinderGeometry(shaftRadius * 1.30, shaftRadius * 1.26, sleeveLength, 32, 12, true);
     const sleeveMat = new THREE.MeshPhysicalMaterial({
       color: sleeveUpgradeLevel > 2 ? 0x06b6d4 : 0x38bdf8,
-      transmission: 0.72,
-      opacity: 0.88,
+      transmission: 0.75,
+      opacity: 0.90,
       transparent: true,
-      roughness: 0.12,
-      ior: 1.42,
+      roughness: 0.10,
+      ior: 1.44,
       clearcoat: 1.0,
-      clearcoatRoughness: 0.05,
-      thickness: 0.5,
+      clearcoatRoughness: 0.04,
+      thickness: 0.6,
     });
     const sleeveMesh = new THREE.Mesh(sleeveGeo, sleeveMat);
     strokerGroup.add(sleeveMesh);
 
+    // Lubricant Glaze Sheen Layer (shimmering between sleeve and shaft)
+    const lubeLayerGeo = new THREE.CylinderGeometry(shaftRadius * 1.16, shaftRadius * 1.14, sleeveLength * 0.94, 32, 1, true);
+    const lubeLayerMat = new THREE.MeshPhysicalMaterial({
+      color: 0xffffff,
+      transmission: 0.6,
+      transparent: true,
+      opacity: 0.85,
+      roughness: 0.03,
+      clearcoat: 1.0,
+    });
+    const lubeLayerMesh = new THREE.Mesh(lubeLayerGeo, lubeLayerMat);
+    strokerGroup.add(lubeLayerMesh);
+
+    // Top Polished Titanium Vacuum Collar Ring
+    const collarGeo = new THREE.TorusGeometry(shaftRadius * 1.30, 0.055, 16, 32);
+    const collarMat = new THREE.MeshStandardMaterial({
+      color: 0xe2e8f0,
+      metalness: 0.92,
+      roughness: 0.18,
+    });
+    const topCollarMesh = new THREE.Mesh(collarGeo, collarMat);
+    topCollarMesh.position.y = sleeveLength / 2;
+    topCollarMesh.rotation.x = Math.PI / 2;
+    strokerGroup.add(topCollarMesh);
+
+    // Bottom Polished Titanium Vacuum Collar Ring
+    const bottomCollarMesh = new THREE.Mesh(collarGeo, collarMat);
+    bottomCollarMesh.position.y = -sleeveLength / 2;
+    bottomCollarMesh.rotation.x = Math.PI / 2;
+    strokerGroup.add(bottomCollarMesh);
+
+    // Glowing Neon Center Status Ring
+    const centerRingGeo = new THREE.TorusGeometry(shaftRadius * 1.33, 0.03, 12, 32);
+    const centerRingMat = new THREE.MeshStandardMaterial({
+      color: 0x06b6d4,
+      emissive: 0x0891b2,
+      emissiveIntensity: 0.8,
+      roughness: 0.2,
+    });
+    const centerRingMesh = new THREE.Mesh(centerRingGeo, centerRingMat);
+    centerRingMesh.rotation.x = Math.PI / 2;
+    strokerGroup.add(centerRingMesh);
+
     // Internal Textured Rib Rings
     const ribMat = new THREE.MeshStandardMaterial({
       color: 0x22d3ee,
+      emissive: 0x0e7490,
+      emissiveIntensity: 0.4,
       roughness: 0.25,
       metalness: 0.2,
     });
-    [-0.6, -0.3, 0, 0.3, 0.6].forEach((yPos) => {
-      const ribGeo = new THREE.TorusGeometry(shaftRadius * 1.14, 0.04, 12, 32);
+    [-0.65, -0.35, 0, 0.35, 0.65].forEach((yPos) => {
+      const ribGeo = new THREE.TorusGeometry(shaftRadius * 1.15, 0.045, 12, 32);
       const ribMesh = new THREE.Mesh(ribGeo, ribMat);
       ribMesh.position.y = yPos;
       ribMesh.rotation.x = Math.PI / 2;
       strokerGroup.add(ribMesh);
     });
 
-    // Anatomical Gripping Hand / Fingers wrapped around the sleeve
-    const fingersGroup = new THREE.Group();
-    fingersGroupRef.current = fingersGroup;
-    strokerGroup.add(fingersGroup);
+    // Automated High-Precision Robotic Vacuum Carriage (Motorized clinical extraction sleeve apparatus)
+    const roboticCarriage = new THREE.Group();
+    strokerGroup.add(roboticCarriage);
 
-    const fingerMat = new THREE.MeshPhysicalMaterial({
-      color: 0xcaa382,
-      roughness: 0.4,
-      metalness: 0.05,
+    const housingMat = new THREE.MeshStandardMaterial({
+      color: 0x1e293b,
+      metalness: 0.85,
+      roughness: 0.25,
+    });
+    const railMat = new THREE.MeshStandardMaterial({
+      color: 0xe2e8f0,
+      metalness: 0.95,
+      roughness: 0.12,
+    });
+    const ledMat = new THREE.MeshStandardMaterial({
+      color: 0x06b6d4,
+      emissive: 0x0891b2,
+      emissiveIntensity: 0.9,
+      roughness: 0.2,
     });
 
-    [-0.5, -0.15, 0.2, 0.55].forEach((yOffset, i) => {
-      const fingerGeo = new THREE.CylinderGeometry(0.18, 0.18, 2.2, 16);
-      const fingerMesh = new THREE.Mesh(fingerGeo, fingerMat);
-      fingerMesh.rotation.z = Math.PI / 2;
-      fingerMesh.rotation.y = (i * 0.15) - 0.2;
-      fingerMesh.position.set(0, yOffset, shaftRadius * 1.2);
-      fingerMesh.castShadow = true;
-      fingersGroup.add(fingerMesh);
+    // Dual Linear Motor Actuator Housings on the flanks
+    [-shaftRadius * 1.35, shaftRadius * 1.35].forEach((xSide) => {
+      // Actuator body
+      const actuatorGeo = new THREE.BoxGeometry(0.24, sleeveLength * 0.82, 0.46);
+      const actuatorMesh = new THREE.Mesh(actuatorGeo, housingMat);
+      actuatorMesh.position.set(xSide, 0, 0);
+      actuatorMesh.castShadow = true;
+      roboticCarriage.add(actuatorMesh);
+
+      // Embedded pulsing cyan LED indicator strip
+      const ledGeo = new THREE.BoxGeometry(0.03, sleeveLength * 0.74, 0.08);
+      const ledMesh = new THREE.Mesh(ledGeo, ledMat);
+      ledMesh.position.set(xSide + (xSide > 0 ? 0.12 : -0.12), 0, 0);
+      roboticCarriage.add(ledMesh);
+
+      // Vertical polished chrome linear slide guide rails
+      const guideGeo = new THREE.CylinderGeometry(0.038, 0.038, sleeveLength * 1.08, 16);
+      const guideMesh = new THREE.Mesh(guideGeo, railMat);
+      guideMesh.position.set(xSide, 0, 0.26);
+      roboticCarriage.add(guideMesh);
+
+      // Vacuum Pneumatic Quick-Release Fitting
+      const fittingGeo = new THREE.CylinderGeometry(0.065, 0.075, 0.22, 16);
+      const fittingMat = new THREE.MeshStandardMaterial({ color: 0x06b6d4, metalness: 0.75, roughness: 0.25 });
+      const fittingMesh = new THREE.Mesh(fittingGeo, fittingMat);
+      fittingMesh.position.set(xSide, 0.35, -0.25);
+      fittingMesh.rotation.x = Math.PI / 2;
+      roboticCarriage.add(fittingMesh);
     });
 
-    // 7. FLEXIBLE MEDICAL SUCTION TUBING (Connecting glans nozzle to collection beaker)
-    const tubeCurve = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(-1.45, 2.3, 0.2),  // Glans tip
-      new THREE.Vector3(-0.6, 2.7, 0.5),   // Arching up and over
-      new THREE.Vector3(0.7, 2.3, 0.6),    // Crossing to beaker
-      new THREE.Vector3(1.8, 1.4, 0.5),    // Entering beaker rim
-    ]);
-    const tubeGeo = new THREE.TubeGeometry(tubeCurve, 32, 0.11, 16, false);
-    const tubeMat = new THREE.MeshPhysicalMaterial({
-      color: 0xe0f2fe,
-      transmission: 0.85,
-      transparent: true,
-      opacity: 0.88,
-      roughness: 0.1,
+    // 7. 3D PROJECTILE VISCOUS SEMEN GLOBS ENGINE
+    // Globs and gooey sprays shoot organically from cock glans meatus in arcing projectile parabolas directly into the collection cup
+    const globMat = new THREE.MeshPhysicalMaterial({
+      color: 0xffffff,
+      roughness: 0.04,
       clearcoat: 1.0,
+      clearcoatRoughness: 0.02,
+      sheen: 1.0,
+      sheenColor: new THREE.Color(0xffffff),
+      transparent: true,
+      opacity: 0.96,
+      transmission: 0.06,
+      ior: 1.48,
     });
-    const tubeMesh = new THREE.Mesh(tubeGeo, tubeMat);
-    scene.add(tubeMesh);
+    const globGeo = new THREE.SphereGeometry(0.13, 16, 16);
 
-    // 8. 3D GRADUATED SPECIMEN COLLECTION CUP / BEAKER (Prominently mounted on the right: X = 1.8)
+    const globPool: {
+      mesh: THREE.Mesh;
+      active: boolean;
+      x: number;
+      y: number;
+      z: number;
+      vx: number;
+      vy: number;
+      vz: number;
+      scale: number;
+      life: number;
+    }[] = [];
+
+    for (let g = 0; g < 32; g++) {
+      const gMesh = new THREE.Mesh(globGeo, globMat);
+      gMesh.visible = false;
+      scene.add(gMesh);
+      globPool.push({
+        mesh: gMesh,
+        active: false,
+        x: -1.45,
+        y: 2.45,
+        z: 0.05,
+        vx: 0,
+        vy: 0,
+        vz: 0,
+        scale: 0.13,
+        life: 0,
+      });
+    }
+    globPoolRef.current = globPool;
+
+    // Pool of 12 Surface Splash Ripple Rings on the Beaker Liquid
+    const splashPool: {
+      mesh: THREE.Mesh;
+      active: boolean;
+      scale: number;
+      opacity: number;
+      y: number;
+    }[] = [];
+    const rippleGeo = new THREE.RingGeometry(0.04, 0.12, 24);
+    for (let r = 0; r < 12; r++) {
+      const rippleMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0,
+        side: THREE.DoubleSide,
+      });
+      const rippleMesh = new THREE.Mesh(rippleGeo, rippleMat);
+      rippleMesh.rotation.x = Math.PI / 2;
+      rippleMesh.visible = false;
+      scene.add(rippleMesh);
+      splashPool.push({
+        mesh: rippleMesh,
+        active: false,
+        scale: 0.1,
+        opacity: 0,
+        y: -1.5,
+      });
+    }
+    splashPoolRef.current = splashPool;
+
+    // 8. 3D GRADUATED SPECIMEN COLLECTION CUP / BEAKER (Positioned on the right: X = 1.75, angled to catch projectile globs & sprays)
     const beakerGroup = new THREE.Group();
-    beakerGroup.position.set(1.8, -0.65, 0.5);
+    beakerGroup.position.set(1.75, -0.65, 0.45);
+    beakerGroup.rotation.z = -0.09; // Angled slightly towards the cock to naturally catch globs
     beakerGroupRef.current = beakerGroup;
     scene.add(beakerGroup);
 
@@ -406,28 +641,55 @@ export const PhysicsViewport: React.FC<PhysicsViewportProps> = ({
     standRodMesh.position.set(1.4, -0.4, 0);
     beakerGroup.add(standRodMesh);
 
-    // 3D SEMEN LIQUID SPECIMEN INSIDE THE BEAKER (Viscous, pearlescent milky white)
+    // 3D SEMEN LIQUID SPECIMEN INSIDE THE BEAKER (Opaque, rich, pearlescent milky white)
     const fluidMaxHeight = 2.8;
-    const fluidGeo = new THREE.CylinderGeometry(1.12, 1.0, fluidMaxHeight, 32);
+    const fluidGeo = new THREE.CylinderGeometry(1.15, 1.04, fluidMaxHeight, 32);
     const fluidMat = new THREE.MeshPhysicalMaterial({
-      color: 0xf8fafc,
-      roughness: 0.16,
-      clearcoat: 0.95,
-      clearcoatRoughness: 0.05,
-      transmission: 0.18,
-      opacity: 0.98,
-      transparent: true,
-      sheen: 0.5,
+      color: 0xfdfdfd,
+      roughness: 0.08,
+      metalness: 0.02,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.04,
+      sheen: 1.0,
       sheenColor: new THREE.Color(0xffffff),
+      transparent: false, // Solid and completely visible through the glass beaker
     });
     const beakerFluidMesh = new THREE.Mesh(fluidGeo, fluidMat);
     beakerFluidMesh.position.y = -1.6 + 0.1;
-    beakerFluidMesh.scale.set(1, 0.05, 1);
+    beakerFluidMesh.scale.set(1, 0.08, 1);
     beakerFluidMeshRef.current = beakerFluidMesh;
     beakerGroup.add(beakerFluidMesh);
 
-    // 9. PARTICLE SYSTEM FOR PHYSICAL SEMEN JETS INTO BEAKER
-    const particleCount = 800;
+    // Glistening Meniscus Cap on top of the fluid column
+    const meniscusGeo = new THREE.CylinderGeometry(1.17, 1.15, 0.06, 32);
+    const meniscusMat = new THREE.MeshPhysicalMaterial({
+      color: 0xffffff,
+      roughness: 0.05,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.02,
+      sheen: 1.0,
+      sheenColor: new THREE.Color(0xffffff),
+    });
+    const meniscusMesh = new THREE.Mesh(meniscusGeo, meniscusMat);
+    meniscusMesh.position.y = -1.5;
+    meniscusMeshRef.current = meniscusMesh;
+    beakerGroup.add(meniscusMesh);
+
+    // Specimen Froth / Bubbles Ring along the glass perimeter
+    const frothGeo = new THREE.TorusGeometry(1.14, 0.06, 12, 32);
+    const frothMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.35,
+      metalness: 0.05,
+    });
+    const frothMesh = new THREE.Mesh(frothGeo, frothMat);
+    frothMesh.rotation.x = Math.PI / 2;
+    frothMesh.position.y = -1.48;
+    frothMeshRef.current = frothMesh;
+    beakerGroup.add(frothMesh);
+
+    // 9. PARTICLE SYSTEM FOR PHYSICAL SEMEN SPURTS & STREAMS
+    const particleCount = 1200;
     const pPositions = new Float32Array(particleCount * 3);
     const pVelocities = new Float32Array(particleCount * 3);
     const pLifetimes = new Float32Array(particleCount);
@@ -442,28 +704,37 @@ export const PhysicsViewport: React.FC<PhysicsViewportProps> = ({
     const pGeo = new THREE.BufferGeometry();
     pGeo.setAttribute('position', new THREE.BufferAttribute(pPositions, 3));
 
-    // Milky fluid droplet texture
+    // High-Definition Milky Fluid Droplet Texture
     const pCanvas = document.createElement('canvas');
-    pCanvas.width = 64;
-    pCanvas.height = 64;
+    pCanvas.width = 128;
+    pCanvas.height = 128;
     const pCtx = pCanvas.getContext('2d');
     if (pCtx) {
-      const grad = pCtx.createRadialGradient(32, 32, 2, 32, 32, 30);
+      // 1. Soft glowing outer rim
+      const grad = pCtx.createRadialGradient(64, 64, 4, 64, 64, 58);
       grad.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
-      grad.addColorStop(0.5, 'rgba(240, 245, 255, 0.9)');
-      grad.addColorStop(0.85, 'rgba(220, 235, 250, 0.5)');
-      grad.addColorStop(1, 'rgba(200, 225, 245, 0)');
+      grad.addColorStop(0.45, 'rgba(255, 255, 255, 0.98)');
+      grad.addColorStop(0.72, 'rgba(242, 246, 255, 0.90)');
+      grad.addColorStop(0.88, 'rgba(225, 238, 252, 0.50)');
+      grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
       pCtx.fillStyle = grad;
       pCtx.beginPath();
-      pCtx.arc(32, 32, 30, 0, Math.PI * 2);
+      pCtx.arc(64, 64, 58, 0, Math.PI * 2);
+      pCtx.fill();
+
+      // 2. High-gloss specular highlight glint
+      pCtx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+      pCtx.beginPath();
+      pCtx.ellipse(48, 46, 14, 8, -Math.PI / 4, 0, Math.PI * 2);
       pCtx.fill();
     }
     const pTex = new THREE.CanvasTexture(pCanvas);
 
     const pMat = new THREE.PointsMaterial({
-      size: 0.35,
+      size: 1.15,
       map: pTex,
       transparent: true,
+      opacity: 0.98,
       blending: THREE.NormalBlending,
       depthWrite: false,
     });
@@ -526,25 +797,24 @@ export const PhysicsViewport: React.FC<PhysicsViewportProps> = ({
       }
 
       // 2. Synchronize Stroker Sleeve position along shaft
-      // When not dragging, gently reflect state.strokePosition
       if (strokerGroupRef.current) {
         const targetStrokerY = 1.95 - state.strokePosition * 3.9;
         if (!isDragging.current) {
-          // Subtle organic breathing motion if idle
-          strokerGroupRef.current.position.y += (targetStrokerY - strokerGroupRef.current.position.y) * 0.35;
+          if (state.isClickStroking) {
+            // Immediate lock during active click stroke cycle
+            strokerGroupRef.current.position.y = targetStrokerY;
+          } else {
+            // Smooth organic following
+            strokerGroupRef.current.position.y += (targetStrokerY - strokerGroupRef.current.position.y) * 0.45;
+          }
         } else {
           // Direct 1:1 position lock when dragging
           strokerGroupRef.current.position.y = targetStrokerY;
         }
 
-        // Biological grip squeezing & corona response
+        // Biological corona engorgement response to stroking
         const strokePhase = 1 - state.strokePosition; // 1 = near glans, 0 = at base
         const squeeze = Math.sin(strokePhase * Math.PI);
-
-        if (fingersGroupRef.current) {
-          const gripScale = 1.0 - squeeze * 0.06;
-          fingersGroupRef.current.scale.set(gripScale, 1.0, gripScale);
-        }
 
         if (glansGroupRef.current) {
           const engorgement = 1.0 + squeeze * 0.08 + (state.resonance / 100) * 0.06;
@@ -557,12 +827,132 @@ export const PhysicsViewport: React.FC<PhysicsViewportProps> = ({
         scrotumGroupRef.current.position.y = -2.85 + Math.sin(now * 0.001) * 0.015;
       }
 
-      // 4. Update Semen Particle System
+      // 4. Update Glistening 3D Meatus Semen Pearl Droplet
+      if (meatusPearlMeshRef.current) {
+        const arousal = Math.min(1.0, Math.max(0, state.resonance / 100));
+        const pulse = Math.sin(now * 0.009) * 0.06;
+        const pearlScale = 0.18 + arousal * 0.95 + (state.isSurging ? 0.75 : 0) + pulse;
+        meatusPearlMeshRef.current.scale.set(pearlScale, pearlScale * 1.5, pearlScale * 1.15);
+        meatusPearlMeshRef.current.position.y = 0.60 + pearlScale * 0.04;
+      }
+
+      // 4b. Automatic Projectile Globs & Gooey Sprays Triggered During Strokes / Continuous Motion
+      const strokeSpeed = Math.abs(state.strokeVelocity);
+      const isActivelyStroking = strokeSpeed > 0.2 || state.isClickStroking || state.isSurging;
+
+      const currentManualStrokes = state.manualStrokes || 0;
+      if (currentManualStrokes > lastStrokeCountRef.current) {
+        const strokeDelta = currentManualStrokes - lastStrokeCountRef.current;
+        lastStrokeCountRef.current = currentManualStrokes;
+        launchViscousGlobs(Math.min(4, Math.max(2, strokeDelta * 2)), 1.35);
+        launchSpecimenBurst(strokeDelta * 10, 1.3);
+      }
+
+      // During active stroke travel (dragging or automated click stroke)
+      if (isActivelyStroking) {
+        const cadenceSpeed = Math.max(0.8, strokeSpeed * 2.2 + (state.isClickStroking ? 3.0 : 0) + (state.isSurging ? 5.5 : 0));
+        dripCadenceTimerRef.current += dt * cadenceSpeed;
+        if (dripCadenceTimerRef.current >= 0.28) {
+          dripCadenceTimerRef.current = 0;
+          launchViscousGlobs(1, 1.15);
+          launchSpecimenBurst(8, 1.1);
+        }
+      }
+
+      // 4c. 3D PROJECTILE VISCOUS GLOBS FLIGHT & SPLASH DYNAMICS
+      const fillFraction = Math.min(1.0, Math.max(0.06, state.liquidLevelMl / state.maxBeakerCapacity));
+      const beakerSurfaceWorldY = -0.65 - 1.6 + fillFraction * 2.8;
+
+      const globs = globPoolRef.current;
+      for (let i = 0; i < globs.length; i++) {
+        const glob = globs[i];
+        if (glob.active) {
+          glob.life -= dt;
+
+          // Parabolic trajectory under gravity
+          glob.vy -= dt * 10.8;
+          glob.vx *= 0.992;
+          glob.vz *= 0.992;
+
+          glob.x += glob.vx * dt;
+          glob.y += glob.vy * dt;
+          glob.z += glob.vz * dt;
+
+          glob.mesh.position.set(glob.x, glob.y, glob.z);
+
+          // Organic aerodynamic stretching along travel vector
+          const speed = Math.sqrt(glob.vx * glob.vx + glob.vy * glob.vy + glob.vz * glob.vz);
+          if (speed > 0.1) {
+            const dir = new THREE.Vector3(glob.vx, glob.vy, glob.vz).normalize();
+            glob.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+            const stretch = Math.min(3.2, 1.25 + speed * 0.26);
+            const squish = 1.0 / Math.sqrt(stretch);
+            glob.mesh.scale.set(glob.scale * squish, glob.scale * stretch, glob.scale * squish);
+          }
+
+          // Landing inside the angled beaker cup (centered at X=1.75, Z=0.45)
+          const bdx = glob.x - 1.75;
+          const bdz = glob.z - 0.45;
+          const distToBeakerCenter = Math.sqrt(bdx * bdx + bdz * bdz);
+
+          if (distToBeakerCenter < 1.25 && glob.y <= beakerSurfaceWorldY + 0.15 && glob.y >= -2.4) {
+            // Viscous glob splats directly into the beaker cup!
+            glob.active = false;
+            glob.mesh.visible = false;
+
+            // Increment cup volume
+            state.liquidLevelMl = Math.min(state.maxBeakerCapacity, state.liquidLevelMl + 0.18);
+            state.sloshVelocity += (Math.random() - 0.5) * 0.28;
+
+            // Expanding surface splash ring
+            const ripples = splashPoolRef.current;
+            for (let r = 0; r < ripples.length; r++) {
+              if (!ripples[r].active) {
+                ripples[r].active = true;
+                ripples[r].scale = 0.16;
+                ripples[r].opacity = 0.92;
+                ripples[r].y = beakerSurfaceWorldY + 0.01;
+                ripples[r].mesh.visible = true;
+                ripples[r].mesh.position.set(glob.x, ripples[r].y, glob.z);
+                break;
+              }
+            }
+
+            // High-fidelity liquid splat audio
+            soundManager.playFluidDrip(0.80 + Math.random() * 0.35);
+          } else if (glob.life <= 0 || glob.y < -3.5) {
+            glob.active = false;
+            glob.mesh.visible = false;
+          }
+        }
+      }
+
+      // 4d. UPDATE EXPANDING SURFACE SPLASH RIPPLES
+      const ripples = splashPoolRef.current;
+      for (let r = 0; r < ripples.length; r++) {
+        if (ripples[r].active) {
+          ripples[r].scale += dt * 3.8;
+          ripples[r].opacity -= dt * 2.6;
+          ripples[r].mesh.position.y = beakerSurfaceWorldY + 0.01;
+          ripples[r].mesh.scale.set(ripples[r].scale, ripples[r].scale, 1.0);
+          (ripples[r].mesh.material as THREE.MeshBasicMaterial).opacity = Math.max(0, ripples[r].opacity);
+          if (ripples[r].opacity <= 0 || ripples[r].scale > 1.8) {
+            ripples[r].active = false;
+            ripples[r].mesh.visible = false;
+          }
+        }
+      }
+
+      // 5. Update Semen Particle System (Parabolic trajectories & splashing into beaker)
       const pData = particleDataRef.current;
       const pSys = particleSystemRef.current;
       if (pData && pSys) {
         const { positions, velocities, lifetimes, active, count: maxParticles } = pData;
         let anyActive = false;
+
+        // Current fluid surface in beaker world coords (Beaker Y = -0.65)
+        const fillFraction = Math.min(1.0, Math.max(0.06, state.liquidLevelMl / state.maxBeakerCapacity));
+        const beakerTopSurfaceWorldY = -0.65 - 1.6 + fillFraction * 2.8;
 
         for (let i = 0; i < maxParticles; i++) {
           if (active[i]) {
@@ -571,23 +961,32 @@ export const PhysicsViewport: React.FC<PhysicsViewportProps> = ({
             positions[i * 3 + 1] += velocities[i * 3 + 1] * dt * 2.8;
             positions[i * 3 + 2] += velocities[i * 3 + 2] * dt * 2.8;
 
-            // Downward gravity into the beaker
-            velocities[i * 3 + 1] -= dt * 9.8;
-            velocities[i * 3] *= 0.98;
-            velocities[i * 3 + 1] *= 0.98;
-            velocities[i * 3 + 2] *= 0.98;
+            // Natural gravity pulling downward
+            velocities[i * 3 + 1] -= dt * 6.5;
+            velocities[i * 3] *= 0.985;
+            velocities[i * 3 + 1] *= 0.985;
+            velocities[i * 3 + 2] *= 0.985;
 
-            lifetimes[i] -= dt * 0.8;
+            lifetimes[i] -= dt * 0.75;
 
-            // Landing into beaker (x ~ 1.8, y < -0.6)
-            if (positions[i * 3 + 1] < -0.8 && Math.abs(positions[i * 3] - 1.8) < 1.2) {
+            // Check if particle lands inside the graduated beaker (centered at X=1.8, Z=0.5)
+            const dx = positions[i * 3] - 1.8;
+            const dz = positions[i * 3 + 2] - 0.5;
+            const distFromBeakerCenter = Math.sqrt(dx * dx + dz * dz);
+
+            if (distFromBeakerCenter < 1.18 && positions[i * 3 + 1] <= beakerTopSurfaceWorldY + 0.15 && positions[i * 3 + 1] >= -2.4) {
+              // Particle hit the liquid surface in the beaker!
               active[i] = false;
               positions[i * 3 + 1] = -1000;
+
               // Increment beaker fluid level
               state.liquidLevelMl = Math.min(
                 state.maxBeakerCapacity,
-                state.liquidLevelMl + 0.04
+                state.liquidLevelMl + 0.08
               );
+
+              // Agitate specimen surface
+              state.sloshVelocity += (Math.random() - 0.5) * 0.15;
             } else if (lifetimes[i] <= 0 || positions[i * 3 + 1] < -4) {
               active[i] = false;
               positions[i * 3 + 1] = -1000;
@@ -600,27 +999,40 @@ export const PhysicsViewport: React.FC<PhysicsViewportProps> = ({
         }
       }
 
-      // 5. Automatic Ejaculation Streams during Surge
+      // 6. Automatic Multi-Stage Ejaculation Fountains during Surge
       if (state.isSurging) {
         setHudSurge(true);
         burstTimer += dt;
-        if (burstTimer > 0.08) {
+        if (burstTimer > 0.05) {
           burstTimer = 0;
-          launchSpecimenBurst(12, 1.5);
+          launchSpecimenBurst(24, 2.0);
+          launchViscousGlobs(4, 1.9);
           soundManager.playViscousSpurt();
         }
       } else {
         setHudSurge(false);
       }
 
-      // 6. UPDATE 3D FLUID MESH IN THE SPECIMEN COLLECTION BEAKER
-      if (beakerFluidMeshRef.current) {
-        const fillFraction = Math.min(1.0, Math.max(0.04, state.liquidLevelMl / state.maxBeakerCapacity));
+      // 7. UPDATE 3D FLUID MESH, MENISCUS, AND FROTH IN SPECIMEN COLLECTION BEAKER
+      if (beakerFluidMeshRef.current && meniscusMeshRef.current && frothMeshRef.current) {
+        const fillFraction = Math.min(1.0, Math.max(0.06, state.liquidLevelMl / state.maxBeakerCapacity));
         const maxFluidHeight = 2.8;
+
+        // Opaque pearlescent semen column rising from base (-1.6)
         beakerFluidMeshRef.current.scale.set(1.0, fillFraction, 1.0);
-        // Position rises from base (-1.6) upward
         beakerFluidMeshRef.current.position.y = -1.6 + (fillFraction * maxFluidHeight) / 2;
-        beakerFluidMeshRef.current.rotation.z = state.sloshAngle * 0.25;
+        beakerFluidMeshRef.current.rotation.z = state.sloshAngle * 0.2;
+
+        // Glistening Meniscus Disc on top of the fluid column
+        const topSurfaceLocalY = -1.6 + fillFraction * maxFluidHeight;
+        meniscusMeshRef.current.position.y = topSurfaceLocalY;
+        meniscusMeshRef.current.rotation.z = state.sloshAngle * 0.35;
+
+        // Froth and bubble ring around the rim
+        frothMeshRef.current.position.y = topSurfaceLocalY + 0.02;
+        frothMeshRef.current.rotation.z = state.sloshAngle * 0.35;
+        const frothPulse = 1.0 + Math.sin(now * 0.012) * 0.035;
+        frothMeshRef.current.scale.set(frothPulse, frothPulse, 1.0);
       }
 
       // HUD Sync
@@ -637,7 +1049,7 @@ export const PhysicsViewport: React.FC<PhysicsViewportProps> = ({
 
     animationFrameId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animationFrameId);
-  }, [state, launchSpecimenBurst]);
+  }, [state, launchSpecimenBurst, launchViscousGlobs]);
 
   // DIRECT 1:1 TOUCH / POINTER HANDLERS
   // When sliding finger/thumb up/down, the sleeve moves at the EXACT same speed!
@@ -650,8 +1062,10 @@ export const PhysicsViewport: React.FC<PhysicsViewportProps> = ({
 
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 
-    // Initial touch registers immediate manual stroke sensation
+    // Initial touch registers immediate manual stroke sensation and gooey spray into cup
     onManualStroke(1.2);
+    launchViscousGlobs(2, 1.2);
+    launchSpecimenBurst(10, 1.2);
     soundManager.playStroke(1.2, state.lubeLevel);
     hapticManager.triggerRibPass();
   };
@@ -706,19 +1120,30 @@ export const PhysicsViewport: React.FC<PhysicsViewportProps> = ({
         vacuumUpgradeLevel,
       });
 
-      // If stimulated, pre-cum drops trickle into the collection cup
-      if (state.resonance > 35 && Math.random() < 0.3) {
-        launchSpecimenBurst(1, 0.7);
-        state.liquidLevelMl = Math.min(state.maxBeakerCapacity, state.liquidLevelMl + 0.05);
-      }
+      // Viscous Globs & Gooey Sprays ejected directly from penis meatus into Beaker Cup
+      const burstCount = state.resonance > 75 ? 4 : state.resonance > 35 ? 2 : 1;
+      const speedScale = 0.85 + (instantaneousVelocity / 4.0) * 0.5;
+      launchViscousGlobs(burstCount, speedScale);
+      launchSpecimenBurst(burstCount * 8, speedScale);
+      state.liquidLevelMl = Math.min(state.maxBeakerCapacity, state.liquidLevelMl + 0.14 * burstCount);
     }
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const hadMinimalTravel = strokeTravelAccumulator.current < 0.06;
     isDragging.current = false;
     state.isManualDragging = false;
     lastTouchY.current = null;
     strokeTravelAccumulator.current = 0;
+
+    if (hadMinimalTravel) {
+      // Tap/click on 3D viewport: trigger immediate mechanical stroke, projectile globs & gooey sprays!
+      onManualStroke(2.2);
+      launchViscousGlobs(3, 1.4);
+      launchSpecimenBurst(16, 1.3);
+      soundManager.playStroke(2.2, state.lubeLevel);
+      hapticManager.triggerRibPass();
+    }
 
     try {
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);

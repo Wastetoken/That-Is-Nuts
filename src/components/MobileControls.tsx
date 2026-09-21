@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { MachineState } from '../utils/physicsEngine';
 import { DonorProfile } from '../types';
 import { soundManager } from '../utils/audio';
@@ -34,24 +34,47 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
   vacuumUpgradeLevel = 1,
 }) => {
   const [strokePressed, setStrokePressed] = useState(false);
+  const strokeIntervalRef = useRef<number | null>(null);
 
-  const handleStrokePress = () => {
-    setStrokePressed(true);
-    onManualStroke(1.2);
-    // Advanced dynamic haptics simulating sleeve resistance & texture
+  const performStroke = useCallback(() => {
+    onManualStroke(1.5);
     hapticManager.triggerStrokeResistance({
       vacuumPressure: state.vacuumPressure,
       lubeLevel: state.lubeLevel,
-      strokeVelocity: 1.2,
+      strokeVelocity: 1.5,
       sleeveUpgradeLevel,
       resonatorUpgradeLevel,
       vacuumUpgradeLevel,
     });
-  };
+  }, [onManualStroke, state.vacuumPressure, state.lubeLevel, sleeveUpgradeLevel, resonatorUpgradeLevel, vacuumUpgradeLevel]);
 
-  const handleStrokeRelease = () => {
+  const handleStrokePress = useCallback(() => {
+    setStrokePressed(true);
+    performStroke();
+
+    if (strokeIntervalRef.current) {
+      clearInterval(strokeIntervalRef.current);
+    }
+    strokeIntervalRef.current = window.setInterval(() => {
+      performStroke();
+    }, 360);
+  }, [performStroke]);
+
+  const handleStrokeRelease = useCallback(() => {
     setStrokePressed(false);
-  };
+    if (strokeIntervalRef.current) {
+      clearInterval(strokeIntervalRef.current);
+      strokeIntervalRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (strokeIntervalRef.current) {
+        clearInterval(strokeIntervalRef.current);
+      }
+    };
+  }, []);
 
   const handleLubeClick = () => {
     onApplyLube();
@@ -127,8 +150,10 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
           id="btn-rhythmic-stroke"
           onMouseDown={handleStrokePress}
           onMouseUp={handleStrokeRelease}
+          onMouseLeave={handleStrokeRelease}
           onTouchStart={handleStrokePress}
           onTouchEnd={handleStrokeRelease}
+          onTouchCancel={handleStrokeRelease}
           className={`relative h-24 sm:h-28 rounded-xl flex flex-col items-center justify-center p-2.5 sm:p-3 border transition-all select-none active:scale-[0.98] ${
             strokePressed
               ? 'bg-cyan-600 border-cyan-300 shadow-[0_0_25px_rgba(6,182,212,0.6)] text-white'
