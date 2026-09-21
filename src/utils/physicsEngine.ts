@@ -29,6 +29,12 @@ export interface MachineState {
   clickStrokeTime?: number;
   tubeFluidFlowSpeed?: number;
   manualStrokes?: number;
+  // Enhanced Real Cadence Tracking Fields
+  lastStrokeIntervalMs?: number;
+  rhythmCombo?: number;
+  lastTimingRating?: 'PERFECT' | 'GOOD' | 'FAST' | 'SLOW' | 'IDLE';
+  timingAccuracyPercent?: number;
+  isCadenceLocked?: boolean;
 }
 
 export class ExtractionPhysicsEngine {
@@ -224,29 +230,51 @@ export class ExtractionPhysicsEngine {
     }
   }
 
-  // Register a manual or automated stroke event
-  recordStroke(amplitude: number = 1.0) {
+  // Register a manual or automated stroke event with true inter-tap interval measurement
+  recordStroke(amplitude: number = 1.0): { intervalMs: number; freq: number } | null {
     const now = performance.now();
+    let strokeResult: { intervalMs: number; freq: number } | null = null;
     if (this.lastStrokeTime > 0) {
-      const interval = (now - this.lastStrokeTime) / 1000;
-      if (interval > 0.08) {
-        const freq = 1 / interval;
+      const intervalMs = now - this.lastStrokeTime;
+      // Filter out accidental micro-bounces under 75ms and long pauses over 2800ms
+      if (intervalMs >= 75 && intervalMs <= 2800) {
+        const intervalSec = intervalMs / 1000;
+        const freq = 1 / intervalSec;
         this.strokeHistory.push(freq);
         if (this.strokeHistory.length > 6) this.strokeHistory.shift();
+        strokeResult = { intervalMs, freq };
+      } else if (intervalMs > 2800) {
+        // Paused too long, reset stroke cadence history
+        this.strokeHistory = [];
       }
     }
     this.lastStrokeTime = now;
+    return strokeResult;
   }
 
   getSmoothedFrequency(): number {
     if (this.strokeHistory.length === 0) return 0;
     const now = performance.now();
-    if (now - this.lastStrokeTime > 1200) {
+    const timeSinceLast = now - this.lastStrokeTime;
+    if (timeSinceLast > 1800) {
       // Stroke ceased
       return 0;
     }
-    const sum = this.strokeHistory.reduce((a, b) => a + b, 0);
-    return sum / this.strokeHistory.length;
+    // Weighted moving average giving progressive weight to more recent strokes
+    let weightedSum = 0;
+    let totalWeight = 0;
+    for (let i = 0; i < this.strokeHistory.length; i++) {
+      const weight = i + 1;
+      weightedSum += this.strokeHistory[i] * weight;
+      totalWeight += weight;
+    }
+    const avg = totalWeight > 0 ? weightedSum / totalWeight : 0;
+    // Decay smoothly between 1000ms and 1800ms
+    if (timeSinceLast > 1000) {
+      const decay = 1 - (timeSinceLast - 1000) / 800;
+      return avg * Math.max(0, decay);
+    }
+    return avg;
   }
 
   // Calculate specimen grade based on conditions during extraction

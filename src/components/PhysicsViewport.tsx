@@ -15,6 +15,8 @@ interface PhysicsViewportProps {
   sleeveUpgradeLevel?: number;
   resonatorUpgradeLevel?: number;
   vacuumUpgradeLevel?: number;
+  lubeTrigger?: number;
+  vacuumTrigger?: number;
 }
 
 // Donor skin tone lookup table
@@ -35,6 +37,8 @@ export const PhysicsViewport: React.FC<PhysicsViewportProps> = ({
   sleeveUpgradeLevel = 1,
   resonatorUpgradeLevel = 0,
   vacuumUpgradeLevel = 1,
+  lubeTrigger = 0,
+  vacuumTrigger = 0,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -49,6 +53,15 @@ export const PhysicsViewport: React.FC<PhysicsViewportProps> = ({
   const [hudSpeed, setHudSpeed] = useState<number>(0);
   const [hudVolume, setHudVolume] = useState<number>(0);
   const [hudSurge, setHudSurge] = useState<boolean>(false);
+  const [showLubeToast, setShowLubeToast] = useState<boolean>(false);
+  const [showVacuumToast, setShowVacuumToast] = useState<boolean>(false);
+
+  // Trigger tracking refs
+  const lastLubeTriggerRef = useRef<number>(lubeTrigger);
+  const lastVacuumTriggerRef = useRef<number>(vacuumTrigger);
+  const lubeSlatherStartTimeRef = useRef<number>(0);
+  const lubeToastTimeoutRef = useRef<number | null>(null);
+  const vacuumToastTimeoutRef = useRef<number | null>(null);
 
   // Three.js scene refs
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -68,6 +81,27 @@ export const PhysicsViewport: React.FC<PhysicsViewportProps> = ({
   const meatusPearlMeshRef = useRef<THREE.Mesh | null>(null);
   const skinMaterialRef = useRef<THREE.MeshPhysicalMaterial | null>(null);
   const glansMaterialRef = useRef<THREE.MeshPhysicalMaterial | null>(null);
+
+  // Thick clear lube visual refs
+  const lubeGelMaterialRef = useRef<THREE.MeshPhysicalMaterial | null>(null);
+  const shaftLubeMeshRef = useRef<THREE.Mesh | null>(null);
+  const glansLubeMeshRef = useRef<THREE.Mesh | null>(null);
+  const coronaLubeMeshRef = useRef<THREE.Mesh | null>(null);
+  const lubeStreamMeshRef = useRef<THREE.Mesh | null>(null);
+  const slatherWaveMeshRef = useRef<THREE.Mesh | null>(null);
+  const lubeDripsRef = useRef<{
+    mesh: THREE.Mesh;
+    angle: number;
+    baseY: number;
+    currentY: number;
+    speed: number;
+    active: boolean;
+  }[]>([]);
+
+  // Titanium vacuum collar refs
+  const topCollarMeshRef = useRef<THREE.Mesh | null>(null);
+  const bottomCollarMeshRef = useRef<THREE.Mesh | null>(null);
+  const centerRingMeshRef = useRef<THREE.Mesh | null>(null);
 
   // 3D Physical Viscous Semen Globs Engine (Organic projectiles flying in parabolic arcs from meatus to cup)
   const globPoolRef = useRef<{
@@ -336,6 +370,102 @@ export const PhysicsViewport: React.FC<PhysicsViewportProps> = ({
     coronaDewMesh.position.y = 0.02;
     glansGroup.add(coronaDewMesh);
 
+    // THICK CLEAR SILICONE LUBRICANT SYSTEM (Visible wet gel layer on shaft & glans, slather stream, slather wave)
+    const lubeGelMat = new THREE.MeshPhysicalMaterial({
+      color: 0xecfeff,
+      transmission: 0.94,
+      transparent: true,
+      opacity: 0.9,
+      roughness: 0.02,
+      metalness: 0.0,
+      ior: 1.48,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.01,
+      thickness: 0.8,
+      depthWrite: false,
+    });
+    lubeGelMaterialRef.current = lubeGelMat;
+
+    // Shaft clear lube sheath
+    const shaftLubeGeo = new THREE.CylinderGeometry(shaftRadius * 0.965, shaftRadius * 1.075, shaftHeight * 1.01, 32, 16);
+    const shaftLubeMesh = new THREE.Mesh(shaftLubeGeo, lubeGelMat);
+    shaftLubeMesh.position.y = 0;
+    penisGroup.add(shaftLubeMesh);
+    shaftLubeMeshRef.current = shaftLubeMesh;
+
+    // Glans cap clear lube layer
+    const glansLubeGeo = new THREE.SphereGeometry(shaftRadius * 1.10, 32, 24, 0, Math.PI * 2, 0, Math.PI * 0.49);
+    const glansLubeMesh = new THREE.Mesh(glansLubeGeo, lubeGelMat);
+    glansLubeMesh.position.y = 0.05;
+    glansGroup.add(glansLubeMesh);
+    glansLubeMeshRef.current = glansLubeMesh;
+
+    // Corona ridge clear lube pool
+    const coronaLubeGeo = new THREE.TorusGeometry(shaftRadius * 1.075, 0.175, 16, 32);
+    const coronaLubeMesh = new THREE.Mesh(coronaLubeGeo, lubeGelMat);
+    coronaLubeMesh.rotation.x = Math.PI / 2;
+    glansGroup.add(coronaLubeMesh);
+    coronaLubeMeshRef.current = coronaLubeMesh;
+
+    // Slathering Gel Wave Ring (Wipes down the shaft when lube button pressed)
+    const slatherWaveGeo = new THREE.TorusGeometry(shaftRadius * 1.14, 0.22, 16, 32);
+    const slatherWaveMat = new THREE.MeshPhysicalMaterial({
+      color: 0xe0f2fe,
+      transmission: 0.92,
+      roughness: 0.02,
+      transparent: true,
+      opacity: 0,
+      clearcoat: 1.0,
+      ior: 1.48,
+      depthWrite: false,
+    });
+    const slatherWaveMesh = new THREE.Mesh(slatherWaveGeo, slatherWaveMat);
+    slatherWaveMesh.rotation.x = Math.PI / 2;
+    slatherWaveMesh.visible = false;
+    penisGroup.add(slatherWaveMesh);
+    slatherWaveMeshRef.current = slatherWaveMesh;
+
+    // Thick Gel Droplets Pool (Organic beads of clear gel that run down the shaft)
+    const lubeDrips: { mesh: THREE.Mesh; angle: number; baseY: number; currentY: number; speed: number; active: boolean }[] = [];
+    for (let i = 0; i < 12; i++) {
+      const dripGeo = new THREE.SphereGeometry(0.08 + Math.random() * 0.05, 16, 16);
+      dripGeo.scale(1, 1.4, 0.9);
+      const dripMesh = new THREE.Mesh(dripGeo, lubeGelMat);
+      dripMesh.visible = false;
+      penisGroup.add(dripMesh);
+      lubeDrips.push({
+        mesh: dripMesh,
+        angle: (i / 12) * Math.PI * 2 + Math.random() * 0.3,
+        baseY: 2.1 - Math.random() * 0.5,
+        currentY: 2.1,
+        speed: 0.85 + Math.random() * 0.7,
+        active: false,
+      });
+    }
+    lubeDripsRef.current = lubeDrips;
+
+    // Dispenser squirt stream arc (Shoots from upper-left nozzle onto glans)
+    const squirtCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(-1.8, 3.8, 1.2),
+      new THREE.Vector3(-1.6, 3.2, 0.8),
+      new THREE.Vector3(-1.48, 2.55, 0.35),
+    ]);
+    const lubeStreamGeo = new THREE.TubeGeometry(squirtCurve, 24, 0.09, 12, false);
+    const lubeStreamMat = new THREE.MeshPhysicalMaterial({
+      color: 0xecfeff,
+      transmission: 0.92,
+      roughness: 0.02,
+      transparent: true,
+      opacity: 0,
+      clearcoat: 1.0,
+      ior: 1.48,
+      depthWrite: false,
+    });
+    const lubeStreamMesh = new THREE.Mesh(lubeStreamGeo, lubeStreamMat);
+    lubeStreamMesh.visible = false;
+    scene.add(lubeStreamMesh);
+    lubeStreamMeshRef.current = lubeStreamMesh;
+
     // ANCHORED SCROTUM / TESTICLES (Anchored at base Y = -2.85, completely stationary)
     const scrotumGroup = new THREE.Group();
     scrotumGroup.position.set(0, -shaftHeight / 2 - 0.45, -0.15);
@@ -403,12 +533,14 @@ export const PhysicsViewport: React.FC<PhysicsViewportProps> = ({
     topCollarMesh.position.y = sleeveLength / 2;
     topCollarMesh.rotation.x = Math.PI / 2;
     strokerGroup.add(topCollarMesh);
+    topCollarMeshRef.current = topCollarMesh;
 
     // Bottom Polished Titanium Vacuum Collar Ring
     const bottomCollarMesh = new THREE.Mesh(collarGeo, collarMat);
     bottomCollarMesh.position.y = -sleeveLength / 2;
     bottomCollarMesh.rotation.x = Math.PI / 2;
     strokerGroup.add(bottomCollarMesh);
+    bottomCollarMeshRef.current = bottomCollarMesh;
 
     // Glowing Neon Center Status Ring
     const centerRingGeo = new THREE.TorusGeometry(shaftRadius * 1.33, 0.03, 12, 32);
@@ -421,6 +553,7 @@ export const PhysicsViewport: React.FC<PhysicsViewportProps> = ({
     const centerRingMesh = new THREE.Mesh(centerRingGeo, centerRingMat);
     centerRingMesh.rotation.x = Math.PI / 2;
     strokerGroup.add(centerRingMesh);
+    centerRingMeshRef.current = centerRingMesh;
 
     // Internal Textured Rib Rings
     const ribMat = new THREE.MeshStandardMaterial({
@@ -768,6 +901,41 @@ export const PhysicsViewport: React.FC<PhysicsViewportProps> = ({
     };
   }, [activeDonor.id, sleeveUpgradeLevel]);
 
+  // Trigger listener for Lube Slathering button
+  useEffect(() => {
+    if (lubeTrigger !== undefined && lubeTrigger > lastLubeTriggerRef.current) {
+      lastLubeTriggerRef.current = lubeTrigger;
+      lubeSlatherStartTimeRef.current = performance.now();
+      setShowLubeToast(true);
+      if (lubeToastTimeoutRef.current) clearTimeout(lubeToastTimeoutRef.current);
+      lubeToastTimeoutRef.current = window.setTimeout(() => setShowLubeToast(false), 2600);
+
+      // Re-seed clear gel droplets across glans and upper shaft to slide down
+      if (lubeDripsRef.current) {
+        lubeDripsRef.current.forEach((drip, idx) => {
+          drip.active = true;
+          drip.baseY = 2.15 - Math.random() * 0.45;
+          drip.currentY = drip.baseY;
+          drip.speed = 0.95 + Math.random() * 0.8;
+          drip.angle = (idx / 12) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
+          if (drip.mesh) {
+            drip.mesh.visible = true;
+          }
+        });
+      }
+    }
+  }, [lubeTrigger]);
+
+  // Trigger listener for Vacuum Pump button
+  useEffect(() => {
+    if (vacuumTrigger !== undefined && vacuumTrigger > lastVacuumTriggerRef.current) {
+      lastVacuumTriggerRef.current = vacuumTrigger;
+      setShowVacuumToast(true);
+      if (vacuumToastTimeoutRef.current) clearTimeout(vacuumToastTimeoutRef.current);
+      vacuumToastTimeoutRef.current = window.setTimeout(() => setShowVacuumToast(false), 2200);
+    }
+  }, [vacuumTrigger]);
+
   // Main Render Loop (Smooth visuals, 1:1 sync, particle physics, semen cup update)
   useEffect(() => {
     let animationFrameId: number;
@@ -779,14 +947,75 @@ export const PhysicsViewport: React.FC<PhysicsViewportProps> = ({
       const dt = Math.min((now - lastTime) / 1000, 0.08);
       lastTime = now;
 
-      // 1. Skin & Glans material sheen and arousal flush
+      // 1. Thick clear silicone lube coating & slather dynamic simulation
+      const lubeRatio = Math.min(1.0, Math.max(0, state.lubeLevel / 100));
+      if (lubeGelMaterialRef.current) {
+        lubeGelMaterialRef.current.opacity = Math.max(0.12, lubeRatio * 0.94);
+        lubeGelMaterialRef.current.thickness = 0.35 + lubeRatio * 0.7;
+        lubeGelMaterialRef.current.roughness = Math.max(0.015, 0.09 - lubeRatio * 0.075);
+        if (shaftLubeMeshRef.current) shaftLubeMeshRef.current.visible = lubeRatio > 0.05;
+        if (glansLubeMeshRef.current) glansLubeMeshRef.current.visible = lubeRatio > 0.05;
+        if (coronaLubeMeshRef.current) coronaLubeMeshRef.current.visible = lubeRatio > 0.05;
+      }
+
+      // Slathering Squirt & Wave Dynamics (When lube button is pressed)
+      const slatherElapsed = (now - lubeSlatherStartTimeRef.current) / 1000;
+      if (slatherElapsed < 1.4) {
+        const slatherProgress = slatherElapsed / 1.4;
+
+        // A. Dispenser squirt stream arc (nozzle to glans)
+        if (lubeStreamMeshRef.current) {
+          if (slatherProgress < 0.45) {
+            lubeStreamMeshRef.current.visible = true;
+            const streamMat = lubeStreamMeshRef.current.material as THREE.MeshPhysicalMaterial;
+            streamMat.opacity = Math.sin((slatherProgress / 0.45) * Math.PI) * 0.95;
+            const ripple = 1.0 + 0.22 * Math.sin(slatherProgress * 32);
+            lubeStreamMeshRef.current.scale.set(ripple, ripple, ripple);
+          } else {
+            lubeStreamMeshRef.current.visible = false;
+          }
+        }
+
+        // B. Clear gel slather wave wiping down the cock
+        if (slatherWaveMeshRef.current) {
+          slatherWaveMeshRef.current.visible = true;
+          // Sweep from glans Y = 2.4 down to Y = -1.9
+          const waveY = 2.4 - slatherProgress * 4.3;
+          slatherWaveMeshRef.current.position.y = waveY;
+          const waveMat = slatherWaveMeshRef.current.material as THREE.MeshPhysicalMaterial;
+          waveMat.opacity = Math.sin(slatherProgress * Math.PI) * 0.92;
+          const waveWobble = 1.0 + 0.07 * Math.sin(slatherProgress * Math.PI * 3);
+          slatherWaveMeshRef.current.scale.set(waveWobble, waveWobble, 1.0);
+        }
+
+        // C. Thick clear gel drops sliding down the shaft
+        if (lubeDripsRef.current) {
+          const shaftRadius = 0.68;
+          lubeDripsRef.current.forEach((drip) => {
+            if (drip.mesh) {
+              drip.mesh.visible = true;
+              drip.currentY = drip.baseY - Math.pow(slatherProgress, 1.15) * drip.speed * 2.8;
+              const dripRad = shaftRadius * 1.05;
+              drip.mesh.position.set(
+                Math.cos(drip.angle) * dripRad,
+                drip.currentY,
+                Math.sin(drip.angle) * dripRad
+              );
+            }
+          });
+        }
+      } else {
+        if (lubeStreamMeshRef.current) lubeStreamMeshRef.current.visible = false;
+        if (slatherWaveMeshRef.current) slatherWaveMeshRef.current.visible = false;
+      }
+
+      // Skin & Glans material sheen and arousal flush
       if (skinMaterialRef.current && glansMaterialRef.current) {
-        const lubeRatio = Math.min(1.0, Math.max(0, state.lubeLevel / 100));
         skinMaterialRef.current.clearcoat = 0.25 + lubeRatio * 0.75;
-        skinMaterialRef.current.roughness = Math.max(0.12, 0.35 - lubeRatio * 0.23);
+        skinMaterialRef.current.roughness = Math.max(0.04, 0.35 - lubeRatio * 0.29);
 
         glansMaterialRef.current.clearcoat = 0.6 + lubeRatio * 0.4;
-        glansMaterialRef.current.roughness = Math.max(0.08, 0.26 - lubeRatio * 0.18);
+        glansMaterialRef.current.roughness = Math.max(0.03, 0.26 - lubeRatio * 0.23);
 
         const arousalRatio = Math.min(1.0, state.resonance / 100);
         glansMaterialRef.current.emissive.setRGB(
@@ -810,6 +1039,24 @@ export const PhysicsViewport: React.FC<PhysicsViewportProps> = ({
         } else {
           // Direct 1:1 position lock when dragging
           strokerGroupRef.current.position.y = targetStrokerY;
+        }
+
+        // Vacuum suction constriction & collar ring glow
+        const vacNorm = Math.min(1.0, Math.max(0, state.vacuumPressure / 100));
+        const suctionConstrict = 1.0 - vacNorm * 0.085;
+        strokerGroupRef.current.scale.set(suctionConstrict, 1.0, suctionConstrict);
+
+        if (topCollarMeshRef.current && bottomCollarMeshRef.current) {
+          const collarMat = topCollarMeshRef.current.material as THREE.MeshStandardMaterial;
+          collarMat.emissive = new THREE.Color(0x06b6d4);
+          collarMat.emissiveIntensity = vacNorm * 0.9;
+          const bCollarMat = bottomCollarMeshRef.current.material as THREE.MeshStandardMaterial;
+          bCollarMat.emissive = new THREE.Color(0x06b6d4);
+          bCollarMat.emissiveIntensity = vacNorm * 0.9;
+        }
+        if (centerRingMeshRef.current) {
+          const ringMat = centerRingMeshRef.current.material as THREE.MeshStandardMaterial;
+          ringMat.emissiveIntensity = 0.5 + vacNorm * 0.9;
         }
 
         // Biological corona engorgement response to stroking
@@ -1203,6 +1450,36 @@ export const PhysicsViewport: React.FC<PhysicsViewportProps> = ({
           </div>
           <div className="text-xs font-mono font-bold text-white bg-pink-600/80 px-3 py-0.5 rounded-full border border-white/50 inline-block mt-1 shadow-lg">
             PHYSICAL FLUID STREAM INTO CUP
+          </div>
+        </div>
+      )}
+
+      {/* THICK CLEAR LUBE SLATHERED FLOATING TOAST */}
+      {showLubeToast && (
+        <div className="absolute top-14 left-1/2 -translate-x-1/2 pointer-events-none z-20 text-center animate-bounce">
+          <div className="bg-slate-900/95 border-2 border-cyan-400 text-cyan-200 px-4 py-1.5 rounded-full shadow-[0_0_24px_rgba(6,182,212,0.7)] backdrop-blur flex items-center gap-2">
+            <Droplet className="w-4 h-4 text-cyan-300 animate-pulse fill-cyan-400/40" />
+            <span className="font-mono font-bold text-xs tracking-wider">
+              💧 THICK CLEAR SILICONE LUBE SLATHERED (+40%)
+            </span>
+          </div>
+          <div className="text-[10px] font-mono text-cyan-300/80 mt-0.5 bg-slate-950/80 px-2.5 py-0.5 rounded-full border border-cyan-500/30 inline-block shadow">
+            Ultra-Viscous Gel Layer Applied • Friction Reduced
+          </div>
+        </div>
+      )}
+
+      {/* VACUUM SUCTION ENGAGED FLOATING TOAST */}
+      {showVacuumToast && (
+        <div className="absolute top-14 left-1/2 -translate-x-1/2 pointer-events-none z-20 text-center">
+          <div className="bg-slate-900/95 border-2 border-cyan-400 text-cyan-200 px-4 py-1.5 rounded-full shadow-[0_0_24px_rgba(6,182,212,0.6)] backdrop-blur flex items-center gap-2">
+            <Gauge className="w-4 h-4 text-cyan-400 animate-spin" />
+            <span className="font-mono font-bold text-xs tracking-wider">
+              🌀 VACUUM PUMP ENGAGED: {Math.round(state.vacuumPressure || state.targetVacuum)} kPa
+            </span>
+          </div>
+          <div className="text-[10px] font-mono text-cyan-300/80 mt-0.5 bg-slate-950/80 px-2.5 py-0.5 rounded-full border border-cyan-500/30 inline-block shadow">
+            Airtight Silicone Sleeve Clamped • Suction Active
           </div>
         </div>
       )}

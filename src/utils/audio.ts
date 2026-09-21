@@ -334,41 +334,207 @@ class AudioManager {
     }
   }
 
-  // Lube dispenser spray sound
-  playLubeSpray() {
+  // Thick viscous clear lube slather sound (pump squirt + wet squelching gel massage)
+  playLubeSlather() {
     if (!this.enabled) return;
     this.initContext();
     if (!this.ctx || this.ctx.state !== 'running') return;
 
     try {
       const t = this.ctx.currentTime;
-      const bufferSize = Math.max(1, Math.floor(this.ctx.sampleRate * 0.18));
-      const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-      const data = noiseBuffer.getChannelData(0);
-      for (let i = 0; i < bufferSize; i++) {
-        data[i] = (Math.random() * 2 - 1) * 0.5;
+      const sampleRate = this.ctx.sampleRate;
+
+      // 1. Dispenser pump ejection squirt
+      const squirtOsc = this.ctx.createOscillator();
+      const squirtGain = this.ctx.createGain();
+      squirtOsc.type = 'triangle';
+      squirtOsc.frequency.setValueAtTime(820, t);
+      squirtOsc.frequency.exponentialRampToValueAtTime(320, t + 0.14);
+
+      squirtGain.gain.setValueAtTime(0.001, t);
+      squirtGain.gain.linearRampToValueAtTime(0.22, t + 0.02);
+      squirtGain.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+
+      squirtOsc.connect(squirtGain);
+      squirtGain.connect(this.ctx.destination);
+      squirtOsc.start(t);
+      squirtOsc.stop(t + 0.15);
+
+      // 2. Thick viscous gel slathering wave (dense wet gooey friction)
+      const slatherDur = 0.38;
+      const bufLen = Math.floor(sampleRate * slatherDur);
+      const buf = this.ctx.createBuffer(1, bufLen, sampleRate);
+      const data = buf.getChannelData(0);
+      let smooth = 0;
+      for (let i = 0; i < bufLen; i++) {
+        const white = Math.random() * 2 - 1;
+        smooth = smooth * 0.6 + white * 0.4;
+        const progress = i / bufLen;
+        const ripple = 1.0 + 0.4 * Math.sin(progress * Math.PI * 6);
+        data[i] = smooth * Math.sin(progress * Math.PI) * ripple;
       }
 
-      const noise = this.ctx.createBufferSource();
-      noise.buffer = noiseBuffer;
+      const noiseSource = this.ctx.createBufferSource();
+      noiseSource.buffer = buf;
 
-      const filter = this.ctx.createBiquadFilter();
-      filter.type = 'bandpass';
-      filter.frequency.setValueAtTime(1400, t);
-      filter.Q.setValueAtTime(2.0, t);
+      const bandFilter = this.ctx.createBiquadFilter();
+      bandFilter.type = 'bandpass';
+      bandFilter.frequency.setValueAtTime(650, t + 0.04);
+      bandFilter.frequency.exponentialRampToValueAtTime(1250, t + 0.18);
+      bandFilter.frequency.exponentialRampToValueAtTime(450, t + slatherDur);
+      bandFilter.Q.setValueAtTime(4.0, t);
 
-      const gain = this.ctx.createGain();
-      gain.gain.setValueAtTime(0.18, t);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+      const slatherGain = this.ctx.createGain();
+      slatherGain.gain.setValueAtTime(0.001, t + 0.03);
+      slatherGain.gain.linearRampToValueAtTime(0.38, t + 0.08);
+      slatherGain.gain.exponentialRampToValueAtTime(0.001, t + slatherDur);
 
-      noise.connect(filter);
-      filter.connect(gain);
-      gain.connect(this.ctx.destination);
+      noiseSource.connect(bandFilter);
+      bandFilter.connect(slatherGain);
+      slatherGain.connect(this.ctx.destination);
 
-      noise.start(t);
-      noise.stop(t + 0.2);
+      noiseSource.start(t + 0.03);
+      noiseSource.stop(t + slatherDur + 0.05);
+
+      // 3. Wet gooey surface bubble pops
+      for (let p = 0; p < 3; p++) {
+        const popTime = t + 0.08 + p * 0.07;
+        const popOsc = this.ctx.createOscillator();
+        const pGain = this.ctx.createGain();
+        popOsc.type = 'sine';
+        const startF = 380 - p * 60;
+        popOsc.frequency.setValueAtTime(startF, popTime);
+        popOsc.frequency.exponentialRampToValueAtTime(110, popTime + 0.035);
+
+        pGain.gain.setValueAtTime(0.001, popTime);
+        pGain.gain.linearRampToValueAtTime(0.16, popTime + 0.006);
+        pGain.gain.exponentialRampToValueAtTime(0.001, popTime + 0.035);
+
+        popOsc.connect(pGain);
+        pGain.connect(this.ctx.destination);
+        popOsc.start(popTime);
+        popOsc.stop(popTime + 0.04);
+      }
     } catch {
-      // Ignore
+      // Safe fail
+    }
+  }
+
+  // Backwards compatibility alias
+  playLubeSpray() {
+    this.playLubeSlather();
+  }
+
+  // Tactile vacuum pump surge or pneumatic release hiss
+  playVacuumPulse(pressureKPa: number = 35) {
+    if (!this.enabled) return;
+    this.initContext();
+    if (!this.ctx || this.ctx.state !== 'running') return;
+
+    try {
+      const t = this.ctx.currentTime;
+      const sampleRate = this.ctx.sampleRate;
+
+      if (pressureKPa <= 3) {
+        // Pneumatic pressure relief vent (pssshhht release)
+        const ventDur = 0.32;
+        const bufLen = Math.floor(sampleRate * ventDur);
+        const buf = this.ctx.createBuffer(1, bufLen, sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < bufLen; i++) {
+          data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufLen, 1.8);
+        }
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+
+        const filt = this.ctx.createBiquadFilter();
+        filt.type = 'bandpass';
+        filt.frequency.setValueAtTime(2600, t);
+        filt.frequency.exponentialRampToValueAtTime(1200, t + ventDur);
+        filt.Q.setValueAtTime(2.2, t);
+
+        const ventGain = this.ctx.createGain();
+        ventGain.gain.setValueAtTime(0.25, t);
+        ventGain.gain.exponentialRampToValueAtTime(0.001, t + ventDur);
+
+        src.connect(filt);
+        filt.connect(ventGain);
+        ventGain.connect(this.ctx.destination);
+        src.start(t);
+        src.stop(t + ventDur + 0.05);
+        return;
+      }
+
+      // Vacuum suction pump stroke: motor draw + suction whoosh + tight collar seal snap
+      const pulseDur = 0.28;
+      const osc = this.ctx.createOscillator();
+      const oscGain = this.ctx.createGain();
+      osc.type = 'sawtooth';
+      const baseF = 45 + (pressureKPa / 100) * 65;
+      osc.frequency.setValueAtTime(baseF, t);
+      osc.frequency.exponentialRampToValueAtTime(baseF * 1.5, t + 0.12);
+      osc.frequency.exponentialRampToValueAtTime(30, t + pulseDur);
+
+      oscGain.gain.setValueAtTime(0.001, t);
+      oscGain.gain.linearRampToValueAtTime(0.24, t + 0.04);
+      oscGain.gain.exponentialRampToValueAtTime(0.001, t + pulseDur);
+
+      const lowpass = this.ctx.createBiquadFilter();
+      lowpass.type = 'lowpass';
+      lowpass.frequency.setValueAtTime(220, t);
+      lowpass.frequency.linearRampToValueAtTime(550, t + 0.1);
+      lowpass.frequency.exponentialRampToValueAtTime(150, t + pulseDur);
+
+      osc.connect(lowpass);
+      lowpass.connect(oscGain);
+      oscGain.connect(this.ctx.destination);
+      osc.start(t);
+      osc.stop(t + pulseDur + 0.02);
+
+      // Suction air rush noise
+      const noiseDur = 0.24;
+      const nBufLen = Math.floor(sampleRate * noiseDur);
+      const nBuf = this.ctx.createBuffer(1, nBufLen, sampleRate);
+      const nData = nBuf.getChannelData(0);
+      for (let i = 0; i < nBufLen; i++) {
+        nData[i] = (Math.random() * 2 - 1) * Math.sin((i / nBufLen) * Math.PI);
+      }
+      const nSrc = this.ctx.createBufferSource();
+      nSrc.buffer = nBuf;
+
+      const nFilt = this.ctx.createBiquadFilter();
+      nFilt.type = 'bandpass';
+      nFilt.frequency.setValueAtTime(450 + pressureKPa * 8, t);
+      nFilt.Q.setValueAtTime(3.0, t);
+
+      const nGain = this.ctx.createGain();
+      nGain.gain.setValueAtTime(0.001, t);
+      nGain.gain.linearRampToValueAtTime(0.28, t + 0.05);
+      nGain.gain.exponentialRampToValueAtTime(0.001, t + noiseDur);
+
+      nSrc.connect(nFilt);
+      nFilt.connect(nGain);
+      nGain.connect(this.ctx.destination);
+      nSrc.start(t);
+      nSrc.stop(t + noiseDur + 0.02);
+
+      // Rubber seal snap pop at peak suction
+      const snapOsc = this.ctx.createOscillator();
+      const snapGain = this.ctx.createGain();
+      snapOsc.type = 'sine';
+      snapOsc.frequency.setValueAtTime(240, t + 0.08);
+      snapOsc.frequency.exponentialRampToValueAtTime(70, t + 0.13);
+
+      snapGain.gain.setValueAtTime(0.001, t + 0.08);
+      snapGain.gain.linearRampToValueAtTime(0.25, t + 0.088);
+      snapGain.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+
+      snapOsc.connect(snapGain);
+      snapGain.connect(this.ctx.destination);
+      snapOsc.start(t + 0.08);
+      snapOsc.stop(t + 0.14);
+    } catch {
+      // Safe fail
     }
   }
 
@@ -507,6 +673,62 @@ class AudioManager {
   // Milestone level-up chime
   playLevelUp() {
     this.playUpgradeChime();
+  }
+
+  // Precision rhythm metronome tick
+  playMetronomeTick(accent: boolean = false) {
+    if (!this.enabled) return;
+    this.initContext();
+    if (!this.ctx || this.ctx.state !== 'running') return;
+
+    try {
+      const t = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(accent ? 880 : 440, t);
+      osc.frequency.exponentialRampToValueAtTime(accent ? 220 : 110, t + 0.035);
+
+      gain.gain.setValueAtTime(accent ? 0.12 : 0.06, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.045);
+
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+
+      osc.start(t);
+      osc.stop(t + 0.05);
+    } catch {
+      // Ignore
+    }
+  }
+
+  // Satisfying rhythm timing hit sound (for PERFECT on-beat hits)
+  playRhythmHit(perfect: boolean = true) {
+    if (!this.enabled) return;
+    this.initContext();
+    if (!this.ctx || this.ctx.state !== 'running') return;
+
+    try {
+      const t = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(perfect ? 659.25 : 523.25, t); // E5 or C5
+      osc.frequency.exponentialRampToValueAtTime(perfect ? 880 : 587.33, t + 0.06);
+
+      gain.gain.setValueAtTime(perfect ? 0.16 : 0.08, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+
+      osc.start(t);
+      osc.stop(t + 0.085);
+    } catch {
+      // Ignore
+    }
   }
 }
 

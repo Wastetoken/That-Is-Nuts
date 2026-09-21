@@ -12,7 +12,7 @@ interface MobileControlsProps {
   onManualStroke: (velocity: number) => void;
   onApplyLube: () => void;
   onTriggerSurge: () => void;
-  onSetVacuum: (val: number) => void;
+  onSetVacuum: (val: number, immediatePull?: boolean) => void;
   onSetTemperature: (val: number) => void;
   vacuumPowerBonus: number;
   sleeveUpgradeLevel?: number;
@@ -34,6 +34,8 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
   vacuumUpgradeLevel = 1,
 }) => {
   const [strokePressed, setStrokePressed] = useState(false);
+  const [lubePressed, setLubePressed] = useState(false);
+  const [vacPumping, setVacPumping] = useState(false);
   const strokeIntervalRef = useRef<number | null>(null);
 
   const performStroke = useCallback(() => {
@@ -77,13 +79,20 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
   }, []);
 
   const handleLubeClick = () => {
+    setLubePressed(true);
     onApplyLube();
-    hapticManager.triggerLubeDispense();
+    setTimeout(() => setLubePressed(false), 900);
+  };
+
+  const handleVacuumPump = () => {
+    setVacPumping(true);
+    const nextVal = Math.min(maxVacuumAllowed, Math.round(state.targetVacuum + 10));
+    onSetVacuum(nextVal, true);
+    setTimeout(() => setVacPumping(false), 500);
   };
 
   const handleVacuumChange = (val: number) => {
-    onSetVacuum(val);
-    hapticManager.triggerVacuumStep(val);
+    onSetVacuum(val, false);
   };
 
   // Determine resonance sweet spot status
@@ -192,56 +201,127 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
         </button>
       </div>
 
-      {/* 4. Secondary Controls: Vacuum Slider + Lube Dispenser + Thermal */}
+      {/* 4. Secondary Controls: Dedicated Vacuum Pump & Lube Dispenser & Thermal */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-        {/* Vacuum Throttle Card */}
-        <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-2.5">
+        {/* Vacuum Control Card with Prominent Vacuum Button */}
+        <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-2.5 flex flex-col justify-between shadow-md">
           <div className="flex items-center justify-between text-xs mb-1 font-mono">
-            <span className="text-slate-400 flex items-center gap-1">
-              <Gauge className="w-3 h-3 text-cyan-400" /> Vacuum
+            <span className="text-slate-300 flex items-center gap-1 font-semibold">
+              <Gauge className={`w-3.5 h-3.5 ${state.vacuumPressure > 10 ? 'text-cyan-400' : 'text-slate-400'}`} /> Vacuum Pump
             </span>
-            <span className="text-cyan-300 font-bold">{Math.round(state.targetVacuum)} kPa</span>
+            <span className="text-cyan-300 font-bold font-mono">
+              {Math.round(state.vacuumPressure)} <span className="text-slate-400 text-[10px]">/ {Math.round(state.targetVacuum)} kPa</span>
+            </span>
           </div>
-          <input
-            id="slider-vacuum-pressure"
-            type="range"
-            min="0"
-            max={maxVacuumAllowed}
-            step="2"
-            value={state.targetVacuum}
-            onChange={(e) => handleVacuumChange(parseFloat(e.target.value))}
-            className="w-full accent-cyan-400 h-1.5 bg-slate-950 rounded cursor-pointer"
-          />
-          <div className="flex justify-between text-[9px] text-slate-500 font-mono mt-1">
-            <span>0</span>
-            <span className="text-emerald-400">Sweet: {activeDonor.optimalVacuum}</span>
-            <span>{maxVacuumAllowed}</span>
+
+          {/* Dedicated Vacuum Pump Button */}
+          <button
+            id="btn-vacuum-pump"
+            onClick={handleVacuumPump}
+            title="Pump and boost vacuum suction pressure"
+            className={`w-full py-2 px-2.5 rounded-lg border font-mono font-bold text-xs flex items-center justify-between transition-all active:scale-95 shadow ${
+              vacPumping
+                ? 'bg-cyan-500 border-white text-slate-950 scale-[0.98]'
+                : state.vacuumPressure > 15
+                ? 'bg-gradient-to-r from-cyan-950 to-slate-900 border-cyan-500/60 text-cyan-300 hover:border-cyan-400'
+                : 'bg-slate-800 hover:bg-slate-750 border-slate-700 text-slate-200 hover:text-cyan-300'
+            }`}
+          >
+            <span className="flex items-center gap-1.5">
+              <Zap className={`w-3.5 h-3.5 ${vacPumping ? 'animate-spin text-white' : 'text-cyan-400'}`} />
+              {vacPumping ? 'PUMPING...' : 'PUMP VACUUM (+10)'}
+            </span>
+            <span className="text-[10px] text-cyan-400 bg-slate-950/70 px-1.5 py-0.5 rounded border border-cyan-500/30">
+              {state.vacuumPressure > activeDonor.optimalVacuum + 15
+                ? 'High'
+                : Math.abs(state.vacuumPressure - activeDonor.optimalVacuum) < 8
+                ? 'Seal Lock'
+                : 'Suction'}
+            </span>
+          </button>
+
+          {/* Quick Preset Buttons: Sweet Spot & Vent */}
+          <div className="flex gap-1 mt-1.5">
+            <button
+              id="btn-vacuum-sweet"
+              onClick={() => onSetVacuum(activeDonor.optimalVacuum, true)}
+              title="Snap immediately to donor's optimal vacuum sweet spot"
+              className={`flex-1 py-1 px-1.5 text-[10px] font-mono rounded-lg border flex items-center justify-center gap-1 transition-all ${
+                Math.abs(state.targetVacuum - activeDonor.optimalVacuum) < 3
+                  ? 'bg-emerald-950/80 border-emerald-500 text-emerald-300 shadow-[0_0_8px_rgba(16,185,129,0.3)] font-bold'
+                  : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-emerald-300 hover:border-slate-700'
+              }`}
+            >
+              <Sparkles className="w-2.5 h-2.5 text-emerald-400" />
+              Sweet: {activeDonor.optimalVacuum}
+            </button>
+            <button
+              id="btn-vacuum-vent"
+              onClick={() => onSetVacuum(0, false)}
+              title="Release pneumatic vacuum seal"
+              className="py-1 px-2 text-[10px] font-mono rounded-lg border bg-slate-950 border-slate-800 text-slate-400 hover:text-rose-300 hover:border-rose-900/50 transition-colors"
+            >
+              Vent (0)
+            </button>
+          </div>
+
+          {/* Fine Tuning Slider */}
+          <div className="flex items-center gap-1.5 mt-1.5">
+            <input
+              id="slider-vacuum-pressure"
+              type="range"
+              min="0"
+              max={maxVacuumAllowed}
+              step="2"
+              value={state.targetVacuum}
+              onChange={(e) => handleVacuumChange(parseFloat(e.target.value))}
+              className="w-full accent-cyan-400 h-1.5 bg-slate-950 rounded cursor-pointer"
+            />
+            <span className="text-[9px] font-mono text-cyan-400 w-9 text-right shrink-0">
+              {Math.round(state.targetVacuum)}k
+            </span>
           </div>
         </div>
 
-        {/* Lubricant Dispenser Button */}
+        {/* Lubricant Dispenser Button with Instant Visual Slather Feedback */}
         <button
           id="btn-apply-lube"
           onClick={handleLubeClick}
-          className="bg-slate-900/80 hover:bg-slate-800 border border-slate-800 hover:border-cyan-500/40 rounded-xl p-2.5 flex flex-col justify-between transition-colors"
+          className={`border rounded-xl p-2.5 flex flex-col justify-between transition-all active:scale-95 shadow-md ${
+            lubePressed
+              ? 'border-cyan-400 bg-cyan-950/80 shadow-[0_0_16px_rgba(6,182,212,0.5)]'
+              : state.lubeLevel < 20
+              ? 'border-rose-500/60 bg-rose-950/30 hover:border-rose-400'
+              : 'bg-slate-900/90 border-slate-800 hover:border-cyan-500/50 hover:bg-slate-850'
+          }`}
         >
           <div className="w-full flex items-center justify-between text-xs font-mono">
-            <span className="text-slate-400 flex items-center gap-1">
-              <Droplet className="w-3 h-3 text-blue-400" /> Silicone Lube
+            <span className="text-slate-300 flex items-center gap-1.5 font-semibold">
+              <Droplet className={`w-3.5 h-3.5 ${lubePressed ? 'text-cyan-300 animate-bounce' : state.lubeLevel < 20 ? 'text-rose-400 animate-pulse' : 'text-cyan-400'}`} />
+              Silicone Lube
             </span>
-            <span className={state.lubeLevel < 20 ? 'text-rose-400 font-bold animate-pulse' : 'text-blue-300'}>
+            <span className={state.lubeLevel < 20 ? 'text-rose-400 font-bold animate-pulse' : 'text-cyan-300 font-bold'}>
               {Math.round(state.lubeLevel)}%
             </span>
           </div>
-          <div className="w-full bg-slate-950 h-1.5 rounded-full overflow-hidden my-1">
+          <div className="w-full bg-slate-950 h-2 rounded-full overflow-hidden my-1.5 p-0.5 border border-slate-800">
             <div
-              className={`h-full ${state.lubeLevel < 20 ? 'bg-rose-500' : 'bg-blue-400'}`}
-              style={{ width: `${state.lubeLevel}%` }}
+              className={`h-full rounded-full transition-all duration-300 ${
+                state.lubeLevel < 20
+                  ? 'bg-rose-500'
+                  : 'bg-gradient-to-r from-blue-500 to-cyan-400 shadow-[0_0_8px_rgba(6,182,212,0.6)]'
+              }`}
+              style={{ width: `${Math.min(100, Math.max(5, state.lubeLevel))}%` }}
             />
           </div>
-          <span className="text-[10px] text-cyan-400 font-mono text-center w-full">
-            + Dispense Lubricant
-          </span>
+          <div className="w-full flex items-center justify-between text-[10px] font-mono">
+            <span className={lubePressed ? 'text-cyan-200 font-bold animate-pulse' : 'text-cyan-400 font-medium'}>
+              {lubePressed ? '✨ SLATHERING LUBE...' : '+ Slather Thick Lube'}
+            </span>
+            <span className="text-[9px] text-slate-400">
+              {state.lubeLevel > 70 ? 'Ultra-Slick' : state.lubeLevel > 20 ? 'Lubed' : 'Dry!'}
+            </span>
+          </div>
         </button>
 
         {/* Thermal Regulation */}

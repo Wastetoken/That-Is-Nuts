@@ -194,6 +194,22 @@ class HapticFeedbackManager {
     if (!this.enabled) return;
     this.triggerRawVibration([25, 30, 40, 20, 60]);
   }
+
+  /**
+   * Precision Rhythm Beat Haptic (subtle tick when metronome pulses)
+   */
+  public triggerRhythmBeat() {
+    if (!this.enabled) return;
+    this.triggerRawVibration(12);
+  }
+
+  /**
+   * Rhythm Hit Feedback (when user taps on-beat)
+   */
+  public triggerRhythmHit(perfect: boolean = true) {
+    if (!this.enabled) return;
+    this.triggerRawVibration(perfect ? [22, 12, 35] : 18);
+  }
 }
 
 export const hapticManager = new HapticFeedbackManager();

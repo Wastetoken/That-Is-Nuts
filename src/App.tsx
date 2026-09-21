@@ -137,6 +137,8 @@ export default function App() {
   const [hapticsEnabled, setHapticsEnabled] = useState<boolean>(() => hapticManager.enabled);
   const [showStatsModal, setShowStatsModal] = useState<boolean>(false);
   const [activeBatch, setActiveBatch] = useState<ActiveSpecimenBatch | null>(null);
+  const [lubeTriggerCount, setLubeTriggerCount] = useState<number>(0);
+  const [vacuumTriggerCount, setVacuumTriggerCount] = useState<number>(0);
 
   // --- Real-time Physics Engine & Machine State ---
   const engineRef = useRef<ExtractionPhysicsEngine>(new ExtractionPhysicsEngine());
@@ -423,12 +425,24 @@ export default function App() {
     }
   }, []);
 
-  // Handle Lube Spray
+  // Handle Lube Spray & Slather
   const handleApplyLube = useCallback(() => {
     const state = machineStateRef.current;
     state.lubeLevel = Math.min(100, state.lubeLevel + 40);
-    soundManager.playLubeSpray();
+    soundManager.playLubeSlather();
     hapticManager.triggerLubrication();
+    setLubeTriggerCount((c) => c + 1);
+  }, []);
+
+  // Handle Vacuum Setting & Dynamic Pump Pull
+  const handleSetVacuum = useCallback((val: number, immediatePull?: boolean) => {
+    const state = machineStateRef.current;
+    state.targetVacuum = val;
+    if (immediatePull) {
+      state.vacuumPressure = Math.min(100, Math.max(val, state.vacuumPressure + 10));
+    }
+    soundManager.playVacuumPulse();
+    setVacuumTriggerCount((c) => c + 1);
   }, []);
 
   // Handle Trigger Extraction Surge
@@ -643,6 +657,9 @@ export default function App() {
               vacuumPowerBonus={upgradeStats.vacuumPower}
               sleeveUpgradeLevel={sleeveUpgradeLevel}
               resonatorUpgradeLevel={resonatorUpgradeLevel}
+              vacuumUpgradeLevel={vacuumUpgradeLevel}
+              lubeTrigger={lubeTriggerCount}
+              vacuumTrigger={vacuumTriggerCount}
             />
 
             {/* Prominent Specimen Cup Card holding Semen */}
@@ -659,14 +676,13 @@ export default function App() {
               onManualStroke={handleManualStroke}
               onApplyLube={handleApplyLube}
               onTriggerSurge={handleTriggerSurge}
-              onSetVacuum={(val) => {
-                machineStateRef.current.targetVacuum = val;
-              }}
+              onSetVacuum={handleSetVacuum}
               onSetTemperature={(val) => {
                 machineStateRef.current.targetTemperature = val;
               }}
               vacuumPowerBonus={upgradeStats.vacuumPower}
               sleeveUpgradeLevel={sleeveUpgradeLevel}
+              vacuumUpgradeLevel={vacuumUpgradeLevel}
             />
           </main>
         )}
